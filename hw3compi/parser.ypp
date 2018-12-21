@@ -36,16 +36,15 @@
 %token ID
 %token NUM
 %token STRING
-
 %%
 
-Prgram : Struct Funcs
+Prgram : Structs Funcs
 Funcs : 
- | FuncsDecl Funcs
+ | FuncDecl Funcs
 FuncDecl : RetType ID LPAREN Formals RPAREN LBRACE Statements RBRACE
 Structs : 
 | StructsDecl Structs
-Structs Decl : STRUCT ID LBRACE StructMemList RBRACE SC
+StructsDecl : STRUCT ID LBRACE StructMemList RBRACE SC
 RetType : Type 
 | VOID
 Formals :  
@@ -79,12 +78,12 @@ Call : ID LPAREN ExpList RPAREN
 | ID LPAREN RPAREN
 ExpList : Exp 
 | Exp COMMA ExpList
-Typle : INT 
+Type : INT 
 | BYTE 
 | BOOL
 StructType : STRUCT ID
 Exp :LPAREN Exp RPAREN 
-| Exp BIMOP Exp 
+| Exp BINOP Exp 
 | ID 
 | ID PERIOD ID 
 | Call 
