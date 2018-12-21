@@ -12,9 +12,6 @@
 %token B
 %token BOOL
 %token STRUCT
-%token AND
-%token OR
-%token NOT
 %token TRUE
 %token FALSE
 %token RETURN
@@ -25,18 +22,21 @@
 %token CONTINUE
 %token SC
 %token COMMA
-%token PERIOD
-%token LPAREN
-%token RPAREN
 %token LBRACE
 %token RBRACE
-%token ASSIGN
-%token RELOP
-%token BINOP
 %token ID
 %token NUM
 %token STRING
 
+%left OR
+%left AND
+%right ASSIGN
+%left EQ
+%nonassoc RELATIONAL
+%left ADD
+%left MUL
+%right NOT
+%left LPAREN RPAREN PERIOD
 %%
 
 Program : Structs Funcs
@@ -138,8 +138,9 @@ Type : INT
 | BYTE 
 | BOOL
 StructType : STRUCT ID
-Exp :LPAREN Exp RPAREN 
-| Exp BINOP Exp 
+Exp :LPAREN Exp RPAREN %prec LPAREN
+| Exp ADD Exp %prec ADD
+| Exp MUL Exp %prec MUL
 | ID 
 | ID PERIOD ID 
 | Call 
@@ -148,10 +149,11 @@ Exp :LPAREN Exp RPAREN
 | STRING 
 | TRUE 
 | FALSE 
-| NOT Exp 
-| Exp AND Exp 
-| Exp OR Exp 
-| Exp RELOP Exp
+| NOT Exp %prec NOT
+| Exp AND Exp %prec AND
+| Exp OR Exp %prec OR
+| Exp RELATIONAL Exp %prec RELATIONAL
+| Exp EQ Exp %prec EQ
 
 %%
 
