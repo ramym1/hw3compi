@@ -36,9 +36,10 @@
 %token ID
 %token NUM
 %token STRING
+
 %%
 
-Prgram : Structs Funcs
+Program : Structs Funcs
 Funcs : 
  | FuncDecl Funcs
 FuncDecl : RetType ID LPAREN Formals RPAREN LBRACE Statements RBRACE
@@ -56,10 +57,72 @@ FormalDecl : Type ID
 StructMemList : StructMem 
 | StructMem StructMemList
 StructMem : Type ID SC
+
+// Define rules for parsing "Statements" in such a way the "dangling else" conflict will be solved.
+// In order to solve the "danlging else" conflict, we define the grammar rules in such a way that
+// when we get a list of "if"s and "else"s we do the following parsing:
+// Starting from the leftmost "else", match every "else" to the rightest free "if" on its left
+// (a "free if" is an if which we didn't match it an "else" yet).
+// For supporting the above behavior, We divivde statements to "open statements" and "closed 
+// statements".
+// "open statements" are defined to be statements that include at least on "if" without matching 
+// else.
+// and "closed statements" are defined to be statements in which every "if" has matching "else".
+// The following rules support parsing "Statements" while keeping the behaviour explained above. 
+
 Statements : Statement 
 | Statements Statement
-Statement : LBRACE Statements RBRACE
-Statement : Type ID SC 
+
+// We define "OpenStatements" to be a list of statements which contain some number of statements,
+// but one of these statements have to be open statement
+/* Option 1: this list can contain mere one open statement */
+OpenStatements: OpenStatement
+/* Option2: this list can start with an open statement, and the rest of the list can contain any
+   kind of statements */
+| OpenStatement Statements
+/* Option3: this list can start with a closed statement, and the rest of the list must contain at
+   least one open statement, which means the rest of the list is of the kind "OpenStatements" */ 
+| ClosedStatement OpenStatements
+
+// We define "ClosedStatements" to be a list of closed statements
+ClosedStatements: ClosedStatement
+| ClosedStatement ClosedStatements
+
+// Any statements is either open or closed
+Statement : OpenStatement
+| ClosedStatement
+
+// Rules for an open statement.
+// Note that a statement is only considered open if it contains at least one "if" which doesn't
+// have a matching "else".
+// Therefore, an open statement must either start with "if" or "while", or to consist of "LBRACE
+// OpenStatements RBRACE", because according to the grammar 
+// rules, these are the only ways for a statement to contain an "if".
+/* Option1: the statement starts with "if" which doesn't have its matching else.
+   Note that in this case the "if" block can contain any kind of statement (open or closed) */
+OpenStatement: IF LPAREN Exp RPAREN Statement
+/* Option2: the statement starts with "if" which have its matching else.
+   Note that in this case the "if" block can only contain closed statement, because otherwise, it
+   would contain at least one "if" without a matching else, but according to our behaviour for
+   dealing with multiple "if"s and "else"s list (see explanation above),  this "if" must be matched
+   to the "ELSE" in the current rule */
+| IF LPAREN Exp RPAREN ClosedStatement ELSE OpenStatement
+/* Option3: the statement starts with "while".
+   Note In this case, the "while" block must contain at least one "if" without its matching "else",
+   which means it must contain "OpenStatement"
+| WHILE LPAREN Exp RPAREN OpenStatement */
+/* Option4: the statement consist of LBRACE OpenStatements RBRACE */
+| LBRACE OpenStatements RBRACE
+
+// Rules for a closed statement.
+// Note that in a closed statement, every if must have its matching else.
+ClosedStatement: SimpleStatement
+| IF LPAREN Exp RPAREN ClosedStatement ELSE ClosedStatement
+| WHILE LPAREN Exp RPAREN ClosedStatement 
+| LBRACE ClosedStatements RBRACE
+
+SimpleStatement: LBRACE Statements RBRACE
+| Type ID SC 
 | StructType ID SC 
 | STRUCT ID LBRACE StructMemList RBRACE SC 
 | Type ID ASSIGN Exp SC 
@@ -69,9 +132,6 @@ Statement : Type ID SC
 | Call SC 
 | RETURN SC 
 | RETURN Exp SC 
-| IF LPAREN Exp RPAREN Statement 
-| IF LPAREN Exp RPAREN Statement ELSE Statement 
-| WHILE LPAREN Exp RPAREN Statement 
 | BREAK SC 
 | CONTINUE SC
 Call : ID LPAREN ExpList RPAREN 
