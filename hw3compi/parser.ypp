@@ -1,0 +1,110 @@
+%{
+	#include "attributes.h"
+    #include<stdio.h>
+    using namespace std;
+    extern int yylex();
+	int yyerror(char * message);
+%}
+
+%token VOID
+%token INT
+%token BYTE
+%token B
+%token BOOL
+%token STRUCT
+%token AND
+%token OR
+%token NOT
+%token TRUE
+%token FALSE
+%token RETURN
+%token IF
+%token ELSE
+%token WHILE
+%token BREAK
+%token CONTINUE
+%token SC
+%token COMMA
+%token PERIOD
+%token LPAREN
+%token RPAREN
+%token LBRACE
+%token RBRACE
+%token ASSIGN
+%token RELOP
+%token BINOP
+%token ID
+%token NUM
+%token STRING
+
+%%
+
+Prgram : Struct Funcs
+Funcs : 
+ | FuncsDecl Funcs
+FuncDecl : RetType ID LPAREN Formals RPAREN LBRACE Statements RBRACE
+Structs : 
+| StructsDecl Structs
+Structs Decl : STRUCT ID LBRACE StructMemList RBRACE SC
+RetType : Type 
+| VOID
+Formals :  
+| FormalsList
+FormalsList : FormalDecl 
+| FormalDecl COMMA FormalsList
+FormalDecl : Type ID 
+| StructType ID
+StructMemList : StructMem 
+| StructMem StructMemList
+StructMem : Type ID SC
+Statements : Statement 
+| Statements Statement
+Statement : LBRACE Statements RBRACE
+Statement : Type ID SC 
+| StructType ID SC 
+| STRUCT ID LBRACE StructMemList RBRACE SC 
+| Type ID ASSIGN Exp SC 
+| StructType ID ASSIGN Exp SC 
+| ID ASSIGN Exp SC 
+| ID PERIOD ID ASSIGN Exp SC 
+| Call SC 
+| RETURN SC 
+| RETURN Exp SC 
+| IF LPAREN Exp RPAREN Statement 
+| IF LPAREN Exp RPAREN Statement ELSE Statement 
+| WHILE LPAREN Exp RPAREN Statement 
+| BREAK SC 
+| CONTINUE SC
+Call : ID LPAREN ExpList RPAREN 
+| ID LPAREN RPAREN
+ExpList : Exp 
+| Exp COMMA ExpList
+Typle : INT 
+| BYTE 
+| BOOL
+StructType : STRUCT ID
+Exp :LPAREN Exp RPAREN 
+| Exp BIMOP Exp 
+| ID 
+| ID PERIOD ID 
+| Call 
+| NUM 
+| NUM B 
+| STRING 
+| TRUE 
+| FALSE 
+| NOT Exp 
+| Exp AND Exp 
+| Exp OR Exp 
+| Exp RELOP Exp
+
+%%
+
+int main()
+{
+	yyparse();
+}
+
+int yyerror(char * message)
+{
+}
