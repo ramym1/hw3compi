@@ -1,6 +1,7 @@
 %{
 	#include "attributes.h"
     #include<stdio.h>
+    #include<string>
     using namespace std;
     extern int yylex();
 	int yyerror(char * message);
@@ -11,7 +12,7 @@
 %token BYTE
 %token B
 %token BOOL
-%token STRUCT
+%token<string> STRUCT
 %token TRUE
 %token FALSE
 %token RETURN
@@ -24,9 +25,9 @@
 %token COMMA
 %token LBRACE
 %token RBRACE
-%token ID
+%token<string> ID
 %token NUM
-%token STRING
+%token<string> STRING
 
 %left OR
 %left AND
@@ -37,27 +38,90 @@
 %left MUL
 %right NOT
 %left LPAREN RPAREN PERIOD
+
+%type<attribute_t*> FormalDecl;
+%type<attributes_list> Formals;
+%type<attributes_list> FormalsList;
+%type<type_val> Type;
+%type<type_val> RetType;
+%type<type_val> StructType;
+%type<attributes_list> StructMemList;
+%type<attribute_t*> StructMem;
 %%
 
-Program : Structs Funcs
+Program : GlobalScope Structs Funcs EndScope
+GlobalScope : 
+                {
+                     tables.push_back(vector<attribute_t*>(0));
+                     offsets.push_back(0);
+                     //add Print and Printi funcs
+                }
+            ;
 Funcs : 
  | FuncDecl Funcs
-FuncDecl : RetType ID LPAREN Formals RPAREN LBRACE AtLeastOneOpenStatement RBRACE
-| RetType ID LPAREN Formals RPAREN LBRACE ClosedStatements RBRACE
+FuncDecl : RetType ID LPAREN Formals RPAREN LBRACE FuncScope AtLeastOneOpenStatement RBRACE EndScope
+| RetType ID LPAREN Formals RPAREN LBRACE FuncScope ClosedStatements RBRACE EndScope
+FuncScope:  
+                {
+                    vector<attribute_t*> formals = stack.peek(2).attributes_list; //Formals
+                    string id = stack.peek(4).string;
+                    type_enum_t return_type = stack.peek(5);
+                    tables[tables.size()-1].push_back(new functionAttribute(
+                         id /* name */,
+                         return_type,
+                         formals /* parameters */));
+
+                    tables.push_back(vector<attribute_t*>(0));
+
+                    // Function scope always starts with offset 0
+                    offset.push_back(0);
+
+                    // Add function parameters to the current table, from leftmost to rightmost
+                    // parameter.
+                    // Note that leftmost parameter is the last in "formals" array due to the way
+                    // the aprameters are derived.
+                    for(int i=formals.size()-1; i>=0; i--)
+                    {
+                        tables.back().push_back(formals[i]);
+                        tables.back()->offset=offsets.back();
+                        // Decrease offset because function parameters reside in negative offsets
+                        offsets.back()-=tables.back().back()->get_size();
+                    }
+
+                    // Return offset to 0 because fuction scope always starts with offset 0
+                    offsets.back()=0;
+                }
+                ;
 Structs : 
 | StructsDecl Structs
-StructsDecl : STRUCT ID LBRACE StructMemList RBRACE SC
-RetType : Type 
-| VOID
-Formals :  
-| FormalsList
-FormalsList : FormalDecl 
+StructsDecl : STRUCT ID LBRACE StructMemList RBRACE SC AddStructSymbol
+AddStructSymbol:
+                {
+                string id = stack.peek(5);
+                vector<attribute_t*> members = stack.peek(3);
+                tables.back().push_back(new structDeclerationAttribute(id, members));
+                }
+RetType : Type {$$ = $1;}
+| VOID {$$ = TYPE_ENUM_VOID;}
+Formals : {$$ = vector<attribute_t*>(0);}
+| FormalsList {$$ = $1;}
+FormalsList : FormalDecl  {$$ = vector<attribute_t*>(1, $1);}
 | FormalDecl COMMA FormalsList
-FormalDecl : Type ID 
-| StructType ID
-StructMemList : StructMem 
+             {
+                $$ = $3;
+                $$.push_back($1);
+             }
+             ;
+FormalDecl : Type ID {$$ = new attribute_t($1, $2);}
+| StructType ID {$$ = new structVariableAttribute($1, $2);}
+StructMemList : StructMem {$$ = vector<attribute_t*>(1, $1);}
 | StructMem StructMemList
-StructMem : Type ID SC
+            {
+                $$ = $2;
+                $$.push_back($1);
+            }
+            ;
+StructMem : Type ID SC {$$ = new attribute_t($1, $2)}
 
 // Define rules for parsing statements in such a way the "dangling else" conflict will be solved.
 // In order to solve the "danlging else" conflict, we define the grammar rules in such a way that
@@ -96,33 +160,74 @@ ClosedStatements: ClosedStatement
 // for a statement to contain an "if".
 /* Option1: the statement starts with "if" which doesn't have its matching else.
    Note that in this case the "if" block can contain any kind of statement (open or closed) */
-OpenStatement: IF LPAREN Exp RPAREN OpenStatement
-| IF LPAREN Exp RPAREN ClosedStatement
+OpenStatement: IF LPAREN Exp RPAREN NewScope OpenStatement EndScope
+| IF LPAREN Exp RPAREN NewScope ClosedStatement EndScope
 /* Option2: the statement starts with "if" which have its matching else.
    Note that in this case the "if" block can only contain closed statement, because otherwise, it
    would contain at least one "if" without a matching else, but according to our behaviour for
    dealing with multiple "if"s and "else"s list (see explanation above),  this "if" must be matched
    to the "ELSE" in the current rule */
-| IF LPAREN Exp RPAREN ClosedStatement ELSE OpenStatement
+| IF LPAREN Exp RPAREN NewScope ClosedStatement EndScope ELSE NewScope OpenStatement EndScope
 /* Option3: the statement starts with "while".
    Note In this case, the "while" block must contain at least one "if" without its matching "else",
-   which means it must contain "OpenStatement"
-| WHILE LPAREN Exp RPAREN OpenStatement */
+   which means it must contain "OpenStatement" */
+| WHILE LPAREN Exp RPAREN NewScope OpenStatement  EndScope
+                {
+                  /*end_scope */
+                }
 /* Option4: the statement consist of LBRACE AtLeastOneOpenStatement RBRACE */
-| LBRACE AtLeastOneOpenStatement RBRACE
+| LBRACE NewScope AtLeastOneOpenStatement RBRACE EndScope
 
 // Rules for a closed statement.
 // Note that in a closed statement, every if must have its matching else.
 ClosedStatement: SimpleStatement
-| IF LPAREN Exp RPAREN ClosedStatement ELSE ClosedStatement
-| WHILE LPAREN Exp RPAREN ClosedStatement 
-| LBRACE ClosedStatements RBRACE
+| IF LPAREN Exp RPAREN NewScope ClosedStatement EndScope ELSE NewScope ClosedStatement EndScope
+| WHILE LPAREN Exp RPAREN NewScope ClosedStatement EndScope
+| LBRACE NewScope ClosedStatements RBRACE EndScope
+
+NewScope: 
+          {
+            tables.push_back(vector<attribute_t*>(0));
+            offsets.push_back(offsets[offsets.size()-1]);
+          }
+          ;
+EndScope :
+          {
+              endScope();
+              for(int i=0; i<tables.back().size(); i++)
+              {
+                    if(tables.back()[i]->type != TYPE_ENUM_STRUCT_DECLERATION &&
+                       tables.back()[i]->type != TYPE_ENUM_FUNCTION &&
+                       tabkes.back()[i]->type != TYPE_ENUM_STRUCT_VAR )
+                       {
+                            printID(tables.back()[i]->name, tables.back()[i]->offset)
+                       }
+              }
+          }
 
 SimpleStatement: Type ID SC 
+                    {
+                        tables[tables.size()-1].push_back(new attribute_t($1, $2));
+                        offsets[offsets.size()-1]++;
+                    }
+                    ;
 | StructType ID SC 
-| STRUCT ID LBRACE StructMemList RBRACE SC 
+                    {
+                        tables[tables.size()-1].push_back(new structVariableAttribute($1, $2));
+                        offsets[offsets.size()-1] += tables.back().back()->get_size();
+                    }
+                    ;
+| STRUCT ID LBRACE StructMemList RBRACE SC  AddStructSymbol
 | Type ID ASSIGN Exp SC 
+                    {
+                        tables[tables.size()-1].push_back(new attribute_t($1, $2));
+                        offsets[offsets.size()-1]++;
+                    }
 | StructType ID ASSIGN Exp SC 
+                    {
+                        tables.back().push_back(new structVariableAttribute($1, $2));
+                        offsets.back() += tables.back().back()->get_size();
+                    }
 | ID ASSIGN Exp SC 
 | ID PERIOD ID ASSIGN Exp SC 
 | Call SC 
@@ -134,10 +239,10 @@ Call : ID LPAREN ExpList RPAREN
 | ID LPAREN RPAREN
 ExpList : Exp 
 | Exp COMMA ExpList
-Type : INT 
-| BYTE 
-| BOOL
-StructType : STRUCT ID
+Type : INT {$$ = TYPE_ENUM_INT;}
+| BYTE {$$ = TYPE_ENUM_BYTE;}
+| BOOL {$$ = TYPE_ENUM_BOOL;}
+StructType : STRUCT ID {$$ = $2;}
 Exp :LPAREN Exp RPAREN %prec LPAREN
 | Exp ADD Exp %prec ADD
 | Exp MUL Exp %prec MUL
@@ -159,9 +264,12 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
 
 int main()
 {
-	yyparse();
+	tables = vector<vector<attribute> >(0);
+    offsets = vector<int>(0);
+    yyparse();
 }
 
 int yyerror(char * message)
 {
+
 }
