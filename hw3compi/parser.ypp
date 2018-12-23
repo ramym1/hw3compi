@@ -94,7 +94,7 @@ FuncScope:
                         errorDef(err_line, id);
                         exit(0);
                     }
-                    type_enum_t return_type = yyvsp[-5].type_val;
+                    type_enum_t return_type = yyvsp[-6].type_val;
                     tables[tables.size()-1].push_back(new functionAttribute(
                          id /* name */,
                          return_type,
@@ -249,6 +249,15 @@ NewScope:
           ;
 EndScope :
           {
+              // Check whether we are about to reduce the global scope
+              if(tables.size() == 1)
+              {
+                    if(!main_exists())
+                    {
+                         errorMainMissing();
+                         exit(0);
+                    }
+              }
               endScope();
               for(int i=0; i<tables.back().size(); i++)
               {

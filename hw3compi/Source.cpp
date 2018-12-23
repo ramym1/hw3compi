@@ -1,7 +1,9 @@
 #include "funcs.h"
 #include "output.hpp"
 #include "attributes.h"
+#include<iostream>
 using namespace output;
+using namespace std;
 
 static string type_enum_t_to_string(type_enum_t type)
 {
@@ -68,6 +70,26 @@ bool id_is_defined(string id)
         {
             if (tables[i][j]->name == id) return true;
         }
+    }
+    return false;
+}
+
+bool main_exists()
+{
+    // This function should only be called before reducing the global scope, and therefore there
+    // should be only one symbol table
+    assert(tables.size() == 1);
+    for (int i = 0; i < tables[0].size(); i++)
+    {
+        if (tables[0][i]->name != "main") continue;
+        if (tables[0][i]->type != TYPE_ENUM_FUNCTION) continue;
+        
+        // There is a "main" function, verify that it has no parameters and type void
+        functionAttribute* main_func = dynamic_cast<functionAttribute*>(tables[0][i]);
+
+        if (main_func->return_type != TYPE_ENUM_VOID) continue;
+
+        if (main_func->parameters.size() == 0) return true;
     }
     return false;
 }
