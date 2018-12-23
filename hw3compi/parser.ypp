@@ -14,6 +14,7 @@
     vector<int> offsets;
     #define YYDEBUG 1 
     int err_line;
+    int inside_loop = 0;
 %}
 
 %token VOID
@@ -230,7 +231,7 @@ OpenStatement: IF LPAREN Exp RPAREN NewScope OpenStatement EndScope
 /* Option3: the statement starts with "while".
    Note In this case, the "while" block must contain at least one "if" without its matching "else",
    which means it must contain "OpenStatement" */
-| WHILE LPAREN Exp RPAREN NewScope OpenStatement  EndScope
+| WHILE EnterLoop LPAREN Exp RPAREN NewScope OpenStatement  EndScope ExitLoop
 /* Option4: the statement consist of LBRACE AtLeastOneOpenStatement RBRACE */
 | LBRACE NewScope AtLeastOneOpenStatement RBRACE EndScope
 
@@ -238,8 +239,11 @@ OpenStatement: IF LPAREN Exp RPAREN NewScope OpenStatement EndScope
 // Note that in a closed statement, every if must have its matching else.
 ClosedStatement: SimpleStatement
 | IF LPAREN Exp RPAREN NewScope ClosedStatement EndScope ELSE NewScope ClosedStatement EndScope
-| WHILE LPAREN Exp RPAREN NewScope ClosedStatement EndScope
+| WHILE EnterLoop LPAREN Exp RPAREN NewScope ClosedStatement EndScope ExitLoop
 | LBRACE NewScope ClosedStatements RBRACE EndScope
+
+EnterLoop:{inside_loop++;}
+ExitLoop:{inside_loop--;}
 
 NewScope: 
           {
@@ -341,8 +345,22 @@ SimpleStatement: Type StoreLineNum ID SC
 | Call SC 
 | RETURN SC 
 | RETURN Exp SC 
-| BREAK SC 
-| CONTINUE SC
+| BREAK StoreLineNum SC 
+    {
+        if(inside_loop == 0)
+        {
+            errorUnexpectedBreak(err_line);
+            exit(0);
+        }
+    }
+| CONTINUE StoreLineNum SC
+    {
+        if(inside_loop == 0)
+        {
+            errorUnexpectedContinue(err_line);
+            exit(0);
+        }
+    }
 Call : ID LPAREN ExpList RPAREN 
 | ID LPAREN RPAREN
 ExpList : Exp 
