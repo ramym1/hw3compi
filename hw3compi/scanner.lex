@@ -1,5 +1,5 @@
 %{
-	#include "attributes.h"
+    #include "attributes.h"
 	#include "parser.tab.hpp"
 %}
 
@@ -7,38 +7,39 @@
 %option noyywrap
 
 %%
-void            return VOID
-int             return INT
-byte            return BYTE
-b               return B
-bool            return BOOL
-struct          return STRUCT
-and             return AND
-or              return OR
-not             return NOT
-true            return TRUE
-false           return FALSE
-return          return RETURN
-if              return IF
-else            return ELSE
-while           return WHILE
-break           return BREAK
-continue        return CONTINUE
-";"               return SC
-","               return COMMA
-"."               return PERIOD
-"("               return LPAREN
-")"               return RPAREN
-"{"               return LBRACE
-"}"               return RBRACE 
-"="               return ASSIGN
-"==" | "!="                 return EQ
-"<" | ">" | "<=" | ">="     return RELATIONAL 
-"+" | "-"                   return ADD
- "*" | "/"                  return MUL
-[a-zA-Z][a-zA-Z0-9]*        return ID 
-0 | [1-9][0-9]*             return NUM 
-\"([^\n\r\"\\]|\\[rnt"\\])+\"   return STRING
-"//"[^\r\n]*[\r|\n|\r\n]?     return COMMENT
-(\r)|(\n)|(\r\n)            return NEW_LINE
+void            {yylval.type_val = TYPE_ENUM_VOID; return VOID;}
+int             {yylval.type_val = TYPE_ENUM_INT; return INT;}
+byte            {yylval.type_val = TYPE_ENUM_BYTE; return BYTE;}
+b               return B;
+bool            {yylval.type_val = TYPE_ENUM_BOOL; return BOOL;}
+struct          {return STRUCT;}
+and             return AND;
+or              return OR;
+not             return NOT;
+true            return TRUE;
+false           return FALSE;
+return          return RETURN;
+if              return IF;
+else            return ELSE;
+while           return WHILE;
+break           return BREAK;
+continue        return CONTINUE;
+";"               return SC;
+","               return COMMA;
+"."               return PERIOD;
+"("               return LPAREN;
+")"               return RPAREN;
+"{"               return LBRACE;
+"}"               return RBRACE;
+"="               return ASSIGN;
+"=="|"!="                 return EQ;
+"<"|">"|"<="|">="     return RELATIONAL; 
+"+"|"-"                   return ADD;
+ "*"|"/"                  return MUL;
+[a-zA-Z][a-zA-Z0-9]*        {yylval.string_val = new string(yytext); return ID;}
+0|[1-9][0-9]*             return NUM; 
+\"([^\n\r\"\\]|\\[rnt"\\])+\"   {yylval.string_val = new string(yytext); return STRING;}
+"//"[^\r\n]*[\r|\n|\r\n]?     
+(\r)|(\n)|(\r\n)
+(" ")|(\t)       
 %%

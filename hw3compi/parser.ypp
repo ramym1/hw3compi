@@ -1,10 +1,17 @@
 %{
 	#include "attributes.h"
+    #include "output.hpp"
+    #include "funcs.h"
     #include<stdio.h>
     #include<string>
+    #include<iostream>
     using namespace std;
+    using namespace output;
     extern int yylex();
 	int yyerror(char * message);
+    vector<vector<attribute_t*> > tables;
+    vector<int> offsets;
+    #define YYDEBUG 1 
 %}
 
 %token VOID
@@ -12,7 +19,7 @@
 %token BYTE
 %token B
 %token BOOL
-%token<string> STRUCT
+%token<string_val> STRUCT
 %token TRUE
 %token FALSE
 %token RETURN
@@ -25,9 +32,9 @@
 %token COMMA
 %token LBRACE
 %token RBRACE
-%token<string> ID
+%token<string_val> ID
 %token NUM
-%token<string> STRING
+%token<string_val> STRING
 
 %left OR
 %left AND
@@ -39,14 +46,14 @@
 %right NOT
 %left LPAREN RPAREN PERIOD
 
-%type<attribute_t*> FormalDecl;
+%type<attribute_val> FormalDecl;
 %type<attributes_list> Formals;
 %type<attributes_list> FormalsList;
 %type<type_val> Type;
 %type<type_val> RetType;
-%type<type_val> StructType;
+%type<string_val> StructType;
 %type<attributes_list> StructMemList;
-%type<attribute_t*> StructMem;
+%type<attribute_val> StructMem;
 %%
 
 Program : GlobalScope Structs Funcs EndScope
@@ -54,7 +61,19 @@ GlobalScope :
                 {
                      tables.push_back(vector<attribute_t*>(0));
                      offsets.push_back(0);
-                     //add Print and Printi funcs
+                     vector<attribute_t*> print_params(1, new attribute_t(TYPE_ENUM_STRING, "str"));
+                     vector<attribute_t*> printi_params(1, new attribute_t(TYPE_ENUM_INT, "i"));
+                     functionAttribute* print_attr = new functionAttribute(
+                        "print",
+                        TYPE_ENUM_VOID /* return_type */,
+                        print_params);
+                     functionAttribute* printi_attr = new functionAttribute(
+                        "printi",
+                        TYPE_ENUM_VOID /* return_type */,
+                        printi_params);
+                    tables.back().push_back(print_attr);
+                    tables.back().push_back(printi_attr);
+
                 }
             ;
 Funcs : 
@@ -63,29 +82,29 @@ FuncDecl : RetType ID LPAREN Formals RPAREN LBRACE FuncScope AtLeastOneOpenState
 | RetType ID LPAREN Formals RPAREN LBRACE FuncScope ClosedStatements RBRACE EndScope
 FuncScope:  
                 {
-                    vector<attribute_t*> formals = stack.peek(2).attributes_list; //Formals
-                    string id = stack.peek(4).string;
-                    type_enum_t return_type = stack.peek(5);
+                    vector<attribute_t*>* formals = yyvsp[-2].attributes_list;
+                    string id = *(yyvsp[-4].string_val);
+                    type_enum_t return_type = yyvsp[-5].type_val;
                     tables[tables.size()-1].push_back(new functionAttribute(
                          id /* name */,
                          return_type,
-                         formals /* parameters */));
+                         *formals /* parameters */));
 
                     tables.push_back(vector<attribute_t*>(0));
 
                     // Function scope always starts with offset 0
-                    offset.push_back(0);
+                    offsets.push_back(0);
 
                     // Add function parameters to the current table, from leftmost to rightmost
                     // parameter.
                     // Note that leftmost parameter is the last in "formals" array due to the way
                     // the aprameters are derived.
-                    for(int i=formals.size()-1; i>=0; i--)
+                    for(int i=formals->size()-1; i>=0; i--)
                     {
-                        tables.back().push_back(formals[i]);
-                        tables.back()->offset=offsets.back();
                         // Decrease offset because function parameters reside in negative offsets
+                        tables.back().push_back((*formals)[i]);
                         offsets.back()-=tables.back().back()->get_size();
+                        tables.back().back()->offset=offsets.back();
                     }
 
                     // Return offset to 0 because fuction scope always starts with offset 0
@@ -97,31 +116,31 @@ Structs :
 StructsDecl : STRUCT ID LBRACE StructMemList RBRACE SC AddStructSymbol
 AddStructSymbol:
                 {
-                string id = stack.peek(5);
-                vector<attribute_t*> members = stack.peek(3);
+                string id = *(yyvsp[-4].string_val);
+                vector<attribute_t*> members = *(yyvsp[-2].attributes_list);
                 tables.back().push_back(new structDeclerationAttribute(id, members));
                 }
 RetType : Type {$$ = $1;}
 | VOID {$$ = TYPE_ENUM_VOID;}
-Formals : {$$ = vector<attribute_t*>(0);}
+Formals : {$$ = new vector<attribute_t*>(0);}
 | FormalsList {$$ = $1;}
-FormalsList : FormalDecl  {$$ = vector<attribute_t*>(1, $1);}
+FormalsList : FormalDecl  {$$ = new vector<attribute_t*>(1, $1);}
 | FormalDecl COMMA FormalsList
              {
                 $$ = $3;
-                $$.push_back($1);
+                (*$$).push_back($1);
              }
              ;
-FormalDecl : Type ID {$$ = new attribute_t($1, $2);}
-| StructType ID {$$ = new structVariableAttribute($1, $2);}
-StructMemList : StructMem {$$ = vector<attribute_t*>(1, $1);}
+FormalDecl : Type ID {$$ = new attribute_t($1, *($2));}
+| StructType ID {$$ = new structVariableAttribute(*($1), *($2));}
+StructMemList : StructMem {$$ = new vector<attribute_t*>(1, $1);}
 | StructMem StructMemList
             {
                 $$ = $2;
-                $$.push_back($1);
+                (*$$).push_back($1);
             }
             ;
-StructMem : Type ID SC {$$ = new attribute_t($1, $2)}
+StructMem : Type ID SC {$$ = new attribute_t($1, *($2));}
 
 // Define rules for parsing statements in such a way the "dangling else" conflict will be solved.
 // In order to solve the "danlging else" conflict, we define the grammar rules in such a way that
@@ -172,9 +191,6 @@ OpenStatement: IF LPAREN Exp RPAREN NewScope OpenStatement EndScope
    Note In this case, the "while" block must contain at least one "if" without its matching "else",
    which means it must contain "OpenStatement" */
 | WHILE LPAREN Exp RPAREN NewScope OpenStatement  EndScope
-                {
-                  /*end_scope */
-                }
 /* Option4: the statement consist of LBRACE AtLeastOneOpenStatement RBRACE */
 | LBRACE NewScope AtLeastOneOpenStatement RBRACE EndScope
 
@@ -196,36 +212,55 @@ EndScope :
               endScope();
               for(int i=0; i<tables.back().size(); i++)
               {
-                    if(tables.back()[i]->type != TYPE_ENUM_STRUCT_DECLERATION &&
-                       tables.back()[i]->type != TYPE_ENUM_FUNCTION &&
-                       tabkes.back()[i]->type != TYPE_ENUM_STRUCT_VAR )
+                    if(tables.back()[i]->type != TYPE_ENUM_STRUCT_DECLERATION )
                        {
-                            printID(tables.back()[i]->name, tables.back()[i]->offset)
+                            string symbol_type = get_type_string(tables.back()[i]);
+                            printID(tables.back()[i]->name,tables.back()[i]->offset, symbol_type);
                        }
               }
+              for(int i=0; i<tables.back().size(); i++)
+              {
+                    if(tables.back()[i]->type == TYPE_ENUM_STRUCT_DECLERATION )
+                       {
+                            structDeclerationAttribute* struct_dec =
+                                dynamic_cast<structDeclerationAttribute*>(tables.back()[i]);
+                            vector<string> memTypes, memNames;
+                            // Get member types and names as the same order they were defined.
+                            // Note that struct_dec->members contain the members in a reversed
+                            // order.
+                            for(int j=struct_dec->members.size()-1; j>=0; j--)
+                            {
+                                memTypes.push_back(get_type_string(struct_dec->members[j]));
+                                memNames.push_back(struct_dec->members[j]->name);
+                            }
+                            printStructType(struct_dec->name, memTypes, memNames);
+                       }
+              }
+              tables.pop_back();
+              offsets.pop_back();
           }
-
+          ;
 SimpleStatement: Type ID SC 
                     {
-                        tables[tables.size()-1].push_back(new attribute_t($1, $2));
+                        tables[tables.size()-1].push_back(new attribute_t($1, *($2)));
                         offsets[offsets.size()-1]++;
                     }
                     ;
 | StructType ID SC 
                     {
-                        tables[tables.size()-1].push_back(new structVariableAttribute($1, $2));
+                        tables[tables.size()-1].push_back(new structVariableAttribute(*($1), *($2)));
                         offsets[offsets.size()-1] += tables.back().back()->get_size();
                     }
                     ;
 | STRUCT ID LBRACE StructMemList RBRACE SC  AddStructSymbol
 | Type ID ASSIGN Exp SC 
                     {
-                        tables[tables.size()-1].push_back(new attribute_t($1, $2));
+                        tables[tables.size()-1].push_back(new attribute_t($1, *($2)));
                         offsets[offsets.size()-1]++;
                     }
 | StructType ID ASSIGN Exp SC 
                     {
-                        tables.back().push_back(new structVariableAttribute($1, $2));
+                        tables.back().push_back(new structVariableAttribute(*($1), *($2)));
                         offsets.back() += tables.back().back()->get_size();
                     }
 | ID ASSIGN Exp SC 
@@ -264,12 +299,14 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
 
 int main()
 {
-	tables = vector<vector<attribute> >(0);
+    yydebug = 1;
+	tables = vector<vector<attribute_t*> >(0);
     offsets = vector<int>(0);
     yyparse();
+    return 0;
 }
 
 int yyerror(char * message)
 {
-
+return 0;
 }

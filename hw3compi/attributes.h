@@ -5,6 +5,7 @@
 #include<vector>
 #include<map>
 #include<assert.h>
+#include "output.hpp"
 using namespace std;
 
 enum type_enum_t {
@@ -17,7 +18,7 @@ enum type_enum_t {
     TYPE_ENUM_STRUCT_DECLERATION,
     TYPE_ENUM_VOID
 };
-vector<int> offsets;
+extern vector<int> offsets;
 
 class attribute_t {
 public:
@@ -28,13 +29,14 @@ public:
         offset = offsets.back();
     }
     attribute_t() {}
-    virtual int get_size() { return 1; }
+    virtual int get_size() {return 1; }
 };
 
 
-vector<vector<attribute_t*> > tables;
+extern vector<vector<attribute_t*> > tables;
 
 class functionAttribute : public attribute_t {
+public:
     vector<attribute_t*> parameters;
     type_enum_t return_type;
 
@@ -45,6 +47,7 @@ class functionAttribute : public attribute_t {
     functionAttribute() {}
 };
 class structDeclerationAttribute : public attribute_t {
+public:
     vector<attribute_t*> members;
     structDeclerationAttribute(string name, vector<attribute_t*> members) :
         attribute_t(TYPE_ENUM_STRUCT_DECLERATION, name),
@@ -53,6 +56,7 @@ class structDeclerationAttribute : public attribute_t {
     int get_size() { return members.size(); }
 };
 class structVariableAttribute : public attribute_t {
+public:
     string struct_name;
     structVariableAttribute(string struct_name, string name) :
         attribute_t(TYPE_ENUM_STRUCT_VAR, name),
@@ -77,12 +81,12 @@ class structVariableAttribute : public attribute_t {
 typedef union
 {
     attribute_t* attribute_val;
-    vector<attribute_t*> attributes_list;
-    string string_val;
+    vector<attribute_t*>* attributes_list;
+    string* string_val;
     type_enum_t type_val;
 } STYPE;
 
-#define YYSTYPE STYPE	*/ // Tell Bison to use STYPE as the stack type
+#define YYSTYPE STYPE	 // Tell Bison to use STYPE as the stack type
 /*
 
 typedef struct 
