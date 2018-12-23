@@ -8,10 +8,12 @@
     using namespace std;
     using namespace output;
     extern int yylex();
+    extern int yylineno;
 	int yyerror(char * message);
     vector<vector<attribute_t*> > tables;
     vector<int> offsets;
     #define YYDEBUG 1 
+    int err_line;
 %}
 
 %token VOID
@@ -72,23 +74,33 @@ GlobalScope :
                         TYPE_ENUM_VOID /* return_type */,
                         printi_params);
                     tables.back().push_back(print_attr);
+                    tables.back().back()->line_num = -1;
                     tables.back().push_back(printi_attr);
+                    tables.back().back()->line_num = -1;
 
                 }
             ;
+StoreLineNum: {err_line = yylineno;}
 Funcs : 
  | FuncDecl Funcs
-FuncDecl : RetType ID LPAREN Formals RPAREN LBRACE FuncScope AtLeastOneOpenStatement RBRACE EndScope
-| RetType ID LPAREN Formals RPAREN LBRACE FuncScope ClosedStatements RBRACE EndScope
+FuncDecl : RetType StoreLineNum ID LPAREN Formals RPAREN LBRACE FuncScope AtLeastOneOpenStatement RBRACE EndScope
+| RetType StoreLineNum ID LPAREN Formals RPAREN LBRACE FuncScope ClosedStatements RBRACE EndScope
 FuncScope:  
                 {
                     vector<attribute_t*>* formals = yyvsp[-2].attributes_list;
                     string id = *(yyvsp[-4].string_val);
+                    if(id_is_defined(id))
+                    {
+                        errorDef(err_line, id);
+                        exit(0);
+                    }
                     type_enum_t return_type = yyvsp[-5].type_val;
                     tables[tables.size()-1].push_back(new functionAttribute(
                          id /* name */,
                          return_type,
                          *formals /* parameters */));
+
+                    tables.back().back()->line_num = err_line;
 
                     tables.push_back(vector<attribute_t*>(0));
 
@@ -101,6 +113,11 @@ FuncScope:
                     // the aprameters are derived.
                     for(int i=formals->size()-1; i>=0; i--)
                     {
+                        if (id_is_defined((*formals)[i]->name))
+                        {
+                            errorDef((*formals)[i]->line_num, (*formals)[i]->name);
+                            exit(0);
+                        }
                         // Decrease offset because function parameters reside in negative offsets
                         tables.back().push_back((*formals)[i]);
                         offsets.back()-=tables.back().back()->get_size();
@@ -113,12 +130,18 @@ FuncScope:
                 ;
 Structs : 
 | StructsDecl Structs
-StructsDecl : STRUCT ID LBRACE StructMemList RBRACE SC AddStructSymbol
+StructsDecl : STRUCT StoreLineNum ID LBRACE StructMemList RBRACE SC AddStructSymbol
 AddStructSymbol:
                 {
                 string id = *(yyvsp[-4].string_val);
+                if (id_is_defined(id))
+                {
+                    errorDef(err_line, id);
+                    exit(0);
+                }
                 vector<attribute_t*> members = *(yyvsp[-2].attributes_list);
                 tables.back().push_back(new structDeclerationAttribute(id, members));
+                tables.back().back()->line_num = err_line;
                 }
 RetType : Type {$$ = $1;}
 | VOID {$$ = TYPE_ENUM_VOID;}
@@ -131,16 +154,33 @@ FormalsList : FormalDecl  {$$ = new vector<attribute_t*>(1, $1);}
                 (*$$).push_back($1);
              }
              ;
-FormalDecl : Type ID {$$ = new attribute_t($1, *($2));}
-| StructType ID {$$ = new structVariableAttribute(*($1), *($2));}
+FormalDecl : Type ID {$$ = new attribute_t($1, *($2)); $$->line_num = yylineno;}
+| StructType ID {$$ = new structVariableAttribute(*($1), *($2)); $$->line_num = yylineno;}
 StructMemList : StructMem {$$ = new vector<attribute_t*>(1, $1);}
 | StructMem StructMemList
             {
+                for (int i=$2->size()-1; i>=0; i--)
+                {
+                    if((*$2)[i]->name == $1->name)
+                    {
+                        errorDef((*$2)[i]->line_num, $1->name);
+                        exit(0);
+                    }
+                }
                 $$ = $2;
                 (*$$).push_back($1);
             }
             ;
-StructMem : Type ID SC {$$ = new attribute_t($1, *($2));}
+StructMem : Type StoreLineNum ID SC 
+                    {
+                        if (id_is_defined(*($3)))
+                        {
+                            errorDef(err_line, *($3));
+                            exit(0);
+                        }
+                        $$ = new attribute_t($1, *($3));
+                        $$->line_num = err_line;
+                    }
 
 // Define rules for parsing statements in such a way the "dangling else" conflict will be solved.
 // In order to solve the "danlging else" conflict, we define the grammar rules in such a way that
@@ -240,27 +280,51 @@ EndScope :
               offsets.pop_back();
           }
           ;
-SimpleStatement: Type ID SC 
+SimpleStatement: Type StoreLineNum ID SC 
                     {
-                        tables[tables.size()-1].push_back(new attribute_t($1, *($2)));
+                        if(id_is_defined(*($3)))
+                        {
+                            errorDef(err_line, *($3));
+                            exit(0);
+                        }
+                        tables[tables.size()-1].push_back(new attribute_t($1, *($3)));
+                        tables.back().back()->line_num = err_line;
                         offsets[offsets.size()-1]++;
                     }
                     ;
-| StructType ID SC 
+| StructType StoreLineNum ID SC 
                     {
-                        tables[tables.size()-1].push_back(new structVariableAttribute(*($1), *($2)));
+                        if(id_is_defined(*($3)))
+                        {
+                            errorDef(err_line, *($3));
+                            exit(0);
+                        }
+                        tables[tables.size()-1].push_back(new structVariableAttribute(*($1), *($3)));
+                        tables.back().back()->line_num = err_line;
                         offsets[offsets.size()-1] += tables.back().back()->get_size();
                     }
                     ;
-| STRUCT ID LBRACE StructMemList RBRACE SC  AddStructSymbol
-| Type ID ASSIGN Exp SC 
+| STRUCT StoreLineNum ID LBRACE StructMemList RBRACE SC  AddStructSymbol
+| Type StoreLineNum ID ASSIGN Exp SC 
                     {
-                        tables[tables.size()-1].push_back(new attribute_t($1, *($2)));
+                        if(id_is_defined(*($3)))
+                        {
+                            errorDef(err_line, *($3));
+                            exit(0);
+                        }
+                        tables[tables.size()-1].push_back(new attribute_t($1, *($3)));
+                        tables.back().back()->line_num = err_line;
                         offsets[offsets.size()-1]++;
                     }
-| StructType ID ASSIGN Exp SC 
+| StructType StoreLineNum ID ASSIGN Exp SC 
                     {
-                        tables.back().push_back(new structVariableAttribute(*($1), *($2)));
+                        if(id_is_defined(*($3)))
+                        {
+                            errorDef(err_line, *($3));
+                            exit(0);
+                        }
+                        tables.back().push_back(new structVariableAttribute(*($1), *($3)));
+                        tables.back().back()->line_num = err_line;
                         offsets.back() += tables.back().back()->get_size();
                     }
 | ID ASSIGN Exp SC 
@@ -277,7 +341,7 @@ ExpList : Exp
 Type : INT {$$ = TYPE_ENUM_INT;}
 | BYTE {$$ = TYPE_ENUM_BYTE;}
 | BOOL {$$ = TYPE_ENUM_BOOL;}
-StructType : STRUCT ID {$$ = $2;}
+StructType : STRUCT StoreLineNum ID {$$ = $3;}
 Exp :LPAREN Exp RPAREN %prec LPAREN
 | Exp ADD Exp %prec ADD
 | Exp MUL Exp %prec MUL
@@ -306,7 +370,9 @@ int main()
     return 0;
 }
 
-int yyerror(char * message)
+int yyerror(char* s)
 {
-return 0;
+    errorSyn(yylineno);
+    exit(0);
+    return 0;
 }

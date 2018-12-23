@@ -1,5 +1,6 @@
 #include "funcs.h"
 #include "output.hpp"
+#include "attributes.h"
 using namespace output;
 
 static string type_enum_t_to_string(type_enum_t type)
@@ -57,4 +58,16 @@ string get_type_string(attribute_t* attr) {
         assert(false);
         return "NO_TYPE";
     }
+}
+
+bool id_is_defined(string id)
+{
+    for (int i = 0; i < tables.size(); i++)
+    {
+        for (int j = 0; j < tables[i].size(); j++)
+        {
+            if (tables[i][j]->name == id) return true;
+        }
+    }
+    return false;
 }

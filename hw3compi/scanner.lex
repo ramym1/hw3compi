@@ -1,6 +1,9 @@
 %{
     #include "attributes.h"
 	#include "parser.tab.hpp"
+    #include "output.hpp"
+    using namespace output;
+    int lex_error();
 %}
 
 %option yylineno
@@ -42,4 +45,12 @@ continue        return CONTINUE;
 "//"[^\r\n]*[\r|\n|\r\n]?     
 (\r)|(\n)|(\r\n)
 (" ")|(\t)       
+.       lex_error();
 %%
+
+int lex_error()
+{
+    errorLex(yylineno);
+    exit(0);
+    return 0;
+}

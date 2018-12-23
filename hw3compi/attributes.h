@@ -25,6 +25,7 @@ public:
     type_enum_t type;
     string name;
     int offset;
+    int line_num;
     attribute_t(type_enum_t type, string name) :type(type), name(name) { 
         offset = offsets.back();
     }
