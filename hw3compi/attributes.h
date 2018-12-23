@@ -79,6 +79,13 @@ public:
     }
 };
 
+struct expression
+{
+    type_enum_t type;
+    int val;
+    expression(type_enum_t type, int val) :type(type), val(val) {}
+};
+
 typedef union
 {
     attribute_t* attribute_val;

@@ -40,7 +40,7 @@ continue        return CONTINUE;
 "+"|"-"                   return ADD;
  "*"|"/"                  return MUL;
 [a-zA-Z][a-zA-Z0-9]*        {yylval.string_val = new string(yytext); return ID;}
-0|[1-9][0-9]*             return NUM; 
+0|[1-9][0-9]*             {yylval.string_val = new string(yytext); return NUM;}
 \"([^\n\r\"\\]|\\[rnt"\\])+\"   {yylval.string_val = new string(yytext); return STRING;}
 "//"[^\r\n]*[\r|\n|\r\n]?     
 (\r)|(\n)|(\r\n)

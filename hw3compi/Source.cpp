@@ -93,3 +93,85 @@ bool main_exists()
     }
     return false;
 }
+
+int string_to_int(string str)
+{
+    int ans = 0;
+    for (int i = 0; i < str.size(); i++) {
+        ans *= 10;
+        ans += (str[i] - '0');
+    }
+    return ans;
+}
+
+type_enum_t get_type_by_name(string name)
+{
+    for (int i = 0; i < tables.size(); i++)
+    {
+        for (int j = 0; j < tables[i].size(); j++)
+        {
+            if (tables[i][j]->name == name) return tables[i][j]->type;
+        }
+    }
+    // This function should only be called on existing variables
+    assert(false);
+    return TYPE_ENUM_STRING;
+}
+
+structDeclerationAttribute* get_struct_decleration(std::string struct_name)
+{
+    for (int i = 0; i < tables.size(); i++)
+    {
+        for (int j = 0; j < tables[i].size(); j++)
+        {
+            if (tables[i][j]->name == struct_name)
+            {
+                structDeclerationAttribute* struct_decleration =
+                    dynamic_cast<structDeclerationAttribute*>(tables[i][j]);
+                return struct_decleration;
+            }
+        }
+    }
+    assert(false);
+    return dynamic_cast<structDeclerationAttribute*>(tables[0][0]);
+}
+
+type_enum_t get_struct_member_type(string struct_id, string member_id)
+{
+    for (int i = 0; i < tables.size(); i++)
+    {
+        for (int j = 0; j < tables[i].size(); j++)
+        {
+            if (tables[i][j]->name == struct_id)
+            {
+                assert(tables[i][j]->type == TYPE_ENUM_STRUCT_VAR);
+                structVariableAttribute* struct_var = dynamic_cast<structVariableAttribute*>(tables[i][j]);
+                structDeclerationAttribute* struct_dec = get_struct_decleration(struct_var->struct_name);
+                for (int k = 0; k < struct_dec->members.size(); k++)
+                {
+                    if (struct_dec->members[k]->name == member_id) return struct_dec->members[k]->type;
+                }
+            }
+        }
+    }
+    assert(false);
+    return TYPE_ENUM_STRING;
+}
+
+type_enum_t get_function_ret_val_by_name(std::string function_name)
+{
+    for (int i = 0; i < tables.size(); i++)
+    {
+        for (int j = 0; j < tables[i].size(); j++)
+        {
+            if (tables[i][j]->name == function_name)
+            {
+                assert(tables[i][j]->type == TYPE_ENUM_FUNCTION);
+                functionAttribute* func = dynamic_cast<functionAttribute*>(tables[i][j]);
+                return func->return_type;
+            }
+        }
+    }
+    assert(false);
+    return TYPE_ENUM_VOID;
+}
