@@ -42,7 +42,7 @@ string get_type_string(attribute_t* attr) {
         return "STRING";
     case TYPE_ENUM_STRUCT_VAR:
         struct_var = dynamic_cast<structVariableAttribute*>(attr);
-        return "struct" + struct_var->struct_name;
+        return "struct " + struct_var->struct_name;
     case TYPE_ENUM_FUNCTION:
     {
         function = dynamic_cast<functionAttribute*>(attr);

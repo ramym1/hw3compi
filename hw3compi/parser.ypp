@@ -156,7 +156,16 @@ FormalsList : FormalDecl  {$$ = new vector<attribute_t*>(1, $1);}
              }
              ;
 FormalDecl : Type ID {$$ = new attribute_t($1, *($2)); $$->line_num = yylineno;}
-| StructType ID {$$ = new structVariableAttribute(*($1), *($2)); $$->line_num = yylineno;}
+| StructType ID 
+                {
+                    $$ = new structVariableAttribute(*($1), *($2));
+                    $$->line_num = yylineno;
+                    if (!id_is_defined(*($1)))
+                    {
+                        errorUndefStruct(yylineno, *($1));
+                        exit(0);
+                    }
+                }
 StructMemList : StructMem {$$ = new vector<attribute_t*>(1, $1);}
 | StructMem StructMemList
             {
@@ -312,6 +321,11 @@ SimpleStatement: Type StoreLineNum ID SC
                             errorDef(err_line, *($3));
                             exit(0);
                         }
+                        if(!id_is_defined(*($1)))
+                        {
+                            errorUndefStruct(err_line, *($1));
+                            exit(0);
+                        }
                         tables[tables.size()-1].push_back(new structVariableAttribute(*($1), *($3)));
                         tables.back().back()->line_num = err_line;
                         offsets[offsets.size()-1] += tables.back().back()->get_size();
@@ -334,6 +348,11 @@ SimpleStatement: Type StoreLineNum ID SC
                         if(id_is_defined(*($3)))
                         {
                             errorDef(err_line, *($3));
+                            exit(0);
+                        }
+                        if(!id_is_defined(*($1)))
+                        {
+                            errorUndefStruct(err_line, *($1));
                             exit(0);
                         }
                         tables.back().push_back(new structVariableAttribute(*($1), *($3)));
