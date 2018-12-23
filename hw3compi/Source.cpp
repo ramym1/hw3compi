@@ -175,3 +175,24 @@ type_enum_t get_function_ret_val_by_name(std::string function_name)
     assert(false);
     return TYPE_ENUM_VOID;
 }
+
+bool struct_has_member_with_name(std::string struct_id, std::string member_name)
+{
+    for (int i = 0; i < tables.size(); i++)
+    {
+        for (int j = 0; j < tables[i].size(); j++)
+        {
+            if (tables[i][j]->name == struct_id)
+            {
+                assert(tables[i][j]->type == TYPE_ENUM_STRUCT_VAR);
+                structVariableAttribute* struct_var = dynamic_cast<structVariableAttribute*>(tables[i][j]);
+                structDeclerationAttribute* struct_dec = get_struct_decleration(struct_var->struct_name);
+                for (int k = 0; k < struct_dec->members.size(); k++)
+                {
+                    if (struct_dec->members[k]->name == member_name) return true;
+                }
+            }
+        }
+    }
+    return false;
+}

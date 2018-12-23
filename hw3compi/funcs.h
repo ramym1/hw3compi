@@ -8,5 +8,6 @@ int string_to_int(std::string str);
 type_enum_t get_type_by_name(std::string name);
 type_enum_t get_struct_member_type(std::string struct_id, std::string member_id);
 type_enum_t get_function_ret_val_by_name(std::string function_name);
+bool struct_has_member_with_name(std::string struct_id, std::string member_name);
 #endif // !FUNCS_H
 
