@@ -1,6 +1,10 @@
 #include "funcs.h"
 #include "output.hpp"
 #include "attributes.h"
+
+// hw5: included bp.hpp
+#include "bp.hpp"
+
 #include<iostream>
 using namespace output;
 using namespace std;
@@ -118,7 +122,7 @@ type_enum_t get_type_by_name(string name)
     return TYPE_ENUM_STRING;
 }
 
-structDeclerationAttribute* get_struct_decleration(std::string struct_name)
+static structDeclerationAttribute* get_struct_decleration(std::string struct_name)
 {
     for (int i = 0; i < tables.size(); i++)
     {
@@ -133,7 +137,7 @@ structDeclerationAttribute* get_struct_decleration(std::string struct_name)
         }
     }
     assert(false);
-    return dynamic_cast<structDeclerationAttribute*>(tables[0][0]);
+    return NULL;
 }
 
 type_enum_t get_struct_member_type(string struct_id, string member_id)
@@ -195,4 +199,106 @@ bool struct_has_member_with_name(std::string struct_id, std::string member_name)
         }
     }
     return false;
+}
+
+bool type_is_numeric(type_enum_t type)
+{
+    return (type == TYPE_ENUM_INT || type == TYPE_ENUM_BYTE);
+}
+
+bool assign_allowed(expression_t* first, expression_t* second) {
+    if (first->type == TYPE_ENUM_INT) return type_is_numeric(second->type);
+    if (first->type == second->type &&
+        first->type == TYPE_ENUM_STRUCT_VAR)
+    {
+        return first->sub_type == second->sub_type;
+    }
+    return first->type == second->type;
+}
+
+std::string get_struct_subtype(std::string struct_id)
+{
+    for (int i = 0; i < tables.size(); i++)
+    {
+        for (int j = 0; j < tables[i].size(); j++)
+        {
+            if (tables[i][j]->name == struct_id)
+            {
+                structVariableAttribute* struct_var = 
+                    dynamic_cast<structVariableAttribute*>(tables[i][j]);
+                return struct_var->struct_name;
+            }
+        }
+    }
+    assert(false);
+    return "no name";
+}
+
+functionAttribute* get_function(std::string function_id)
+{
+    for (int i = 0; i < tables.size(); i++)
+    {
+        for (int j = 0; j < tables[i].size(); j++)
+        {
+            if (tables[i][j]->name == function_id)
+            {
+                assert(tables[i][j]->type == TYPE_ENUM_FUNCTION);
+                functionAttribute* function = dynamic_cast<functionAttribute*>(tables[i][j]);
+                return function;
+            }
+        }
+    }
+    assert(false);
+    return NULL;
+}
+
+bool function_parameters_match(std::string function_id, vector<expression_t*>* parameters)
+{
+    functionAttribute* function = get_function(function_id);
+    if (parameters->size() != function->parameters.size()) return false;
+    for (int i = 0; i < parameters->size(); i++)
+    {
+        expression_t* param_exp = new expression_t(function->parameters[i]->type);
+        if (param_exp->type == TYPE_ENUM_STRUCT_VAR)
+        {
+            structVariableAttribute* struct_var = dynamic_cast<structVariableAttribute*>(function->parameters[i]);
+            param_exp->sub_type = struct_var->struct_name;
+        }
+        if (!assign_allowed(param_exp, (*parameters)[i])) return false;
+    }
+    return true;
+}
+
+/* hw5 */
+int emit_conditional_branch_for_relational_operation(
+    expression_t left_expression,
+    std::string relational_operation,
+    expression_t right_expression)
+{
+    if (relational_operation == "<")
+    {
+        return CodeBuffer::instance().emit("blt " + left_expression.belongs_reg + "," + right_expression.belongs_reg + ", ");
+    }
+    else if (relational_operation == "<=")
+    {
+        return CodeBuffer::instance().emit("ble " + left_expression.belongs_reg + "," + right_expression.belongs_reg + ", ");
+    }
+    else if (relational_operation == "==")
+    {
+        return CodeBuffer::instance().emit("beq " + left_expression.belongs_reg + "," + right_expression.belongs_reg + ", ");
+    }
+    else if (relational_operation == "!=")
+    {
+        return CodeBuffer::instance().emit("bne " + left_expression.belongs_reg + "," + right_expression.belongs_reg + ", ");
+    }
+    else if (relational_operation == ">=")
+    {
+        return CodeBuffer::instance().emit("bge " + left_expression.belongs_reg + "," + right_expression.belongs_reg + ", ");
+    }
+    else
+    {
+        // relational_operation is ">"
+
+        return CodeBuffer::instance().emit("bgt " + left_expression.belongs_reg + "," + right_expression.belongs_reg + ", ");
+    }
 }

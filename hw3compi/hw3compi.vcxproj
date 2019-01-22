@@ -110,6 +110,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="bp.cpp" />
+    <ClCompile Include="output.cpp" />
+    <ClCompile Include="parser.tab.cpp" />
     <ClCompile Include="Source.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -118,6 +121,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="attributes.h" />
+    <ClInclude Include="bp.hpp" />
+    <ClInclude Include="funcs.h" />
+    <ClInclude Include="output.hpp" />
+    <ClInclude Include="parser.tab.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -35,8 +35,20 @@ continue        return CONTINUE;
 "{"               return LBRACE;
 "}"               return RBRACE;
 "="               return ASSIGN;
-"=="|"!="                 return EQ;
-"<"|">"|"<="|">="     return RELATIONAL; 
+"=="|"!="             {
+                          // hw5: I updated "EQ" to be of type "string_val" in parser.ypp,
+                          // therefore I stored a pointer to the corresponding string in
+                          // yylval.string_val here
+                          yylval.string_val = new string(yytext);
+                          return EQ;
+                      }; 
+"<"|">"|"<="|">="     {
+                          // hw5: I updated "RELATIONAL" to be of type "string_val" in parser.ypp,
+                          // therefore I stored a pointer to the corresponding string in
+                          // yylval.string_val here
+                          yylval.string_val = new string(yytext);
+                          return RELATIONAL;
+                      }; 
 "+"|"-"                   return ADD;
  "*"|"/"                  return MUL;
 [a-zA-Z][a-zA-Z0-9]*        {yylval.string_val = new string(yytext); return ID;}

@@ -26,11 +26,11 @@ public:
     string name;
     int offset;
     int line_num;
-    attribute_t(type_enum_t type, string name) :type(type), name(name) { 
+    attribute_t(type_enum_t type, string name) :type(type), name(name) {
         offset = offsets.back();
     }
     attribute_t() {}
-    virtual int get_size() {return 1; }
+    virtual int get_size() { return 1; }
 };
 
 
@@ -53,7 +53,7 @@ public:
     structDeclerationAttribute(string name, vector<attribute_t*> members) :
         attribute_t(TYPE_ENUM_STRUCT_DECLERATION, name),
         members(members) {}
-    structDeclerationAttribute(){}
+    structDeclerationAttribute() {}
     int get_size() { return members.size(); }
 };
 class structVariableAttribute : public attribute_t {
@@ -62,7 +62,7 @@ public:
     structVariableAttribute(string struct_name, string name) :
         attribute_t(TYPE_ENUM_STRUCT_VAR, name),
         struct_name(struct_name) {}
-    structVariableAttribute(){}
+    structVariableAttribute() {}
     int get_size() {
         for (int i = 0; i < tables.size(); i++)
         {
@@ -79,49 +79,63 @@ public:
     }
 };
 
-struct expression
+struct expression_t
 {
     type_enum_t type;
-    int val;
-    expression(type_enum_t type, int val) :type(type), val(val) {}
+    string sub_type;
+    string belongs_reg; //hw5
+    vector<int> true_list;
+    vector<int> false_list;
+    vector<int> next_list;
+
+    expression_t(type_enum_t type) : 
+        type(type),
+        sub_type("."),
+        belongs_reg(""),
+        true_list(vector<int>(0)),
+        false_list(vector<int>(0)),
+        next_list(vector<int>(0))
+    {}
 };
 
-typedef union
+typedef struct
 {
     attribute_t* attribute_val;
     vector<attribute_t*>* attributes_list;
     string* string_val;
     type_enum_t type_val;
+    expression_t* expression_val;
+    vector<expression_t*>* expressions_list;
 } STYPE;
 
 #define YYSTYPE STYPE	 // Tell Bison to use STYPE as the stack type
 /*
 
-typedef struct 
+typedef struct
 {
-    string name;
-    type_enum_t type;
+string name;
+type_enum_t type;
 } simpleAttribute;
 
 typedef struct
 {
-    string name;
-    vector<simpleAttribute> members;
+string name;
+vector<simpleAttribute> members;
 } structAttribute;
 
 typedef struct
 {
-    string name;
-    type_enum_t return_type;
-    vector<simpleAttribute> parameters;
+string name;
+type_enum_t return_type;
+vector<simpleAttribute> parameters;
 } funcAttribute;
 
 typedef union
 {
-    simpleAttribute simpleVal;
-    structAttribute structVal;
-    funcAttribute funcVal;
-} STYPE; 
+simpleAttribute simpleVal;
+structAttribute structVal;
+funcAttribute funcVal;
+} STYPE;
 
 #define YYSTYPE STYPE	*/ // Tell Bison to use STYPE as the stack type
 

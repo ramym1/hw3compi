@@ -5,6 +5,7 @@
     #include<stdio.h>
     #include<string>
     #include<iostream>
+    #include<vector>
     using namespace std;
     using namespace output;
     extern int yylex();
@@ -12,9 +13,17 @@
 	int yyerror(char * message);
     vector<vector<attribute_t*> > tables;
     vector<int> offsets;
-    #define YYDEBUG 1 
     int err_line;
     int inside_loop = 0;
+    int err_line_struct;
+    int err_line_func;
+    #define YYDEBUG 1 
+	/* hw5  */
+	#include "regs_pool.h"
+	/*std::list<function> functionsList;*/
+	regs_pool* regsPool= new regs_pool ;
+    std::string last_generated_label;
+	
 %}
 
 %token VOID
@@ -42,8 +51,12 @@
 %left OR
 %left AND
 %right ASSIGN
-%left EQ
-%nonassoc RELATIONAL
+
+// hw5: updated "EQ" to be of "string_val" type
+%left<string_val> EQ
+
+// hw5: updated "RELATIONAL" to be of "string_val" type
+%nonassoc<string_val> RELATIONAL
 %left ADD
 %left MUL
 %right NOT
@@ -57,7 +70,8 @@
 %type<string_val> StructType;
 %type<attributes_list> StructMemList;
 %type<attribute_val> StructMem;
-%type<type_val> Exp;
+%type<expression_val> Exp;
+%type<expressions_list> ExpList;
 %type<type_val> Call;
 %%
 
@@ -83,27 +97,29 @@ GlobalScope :
 
                 }
             ;
+SLNF: {err_line_func = yylineno;}
+SLNFC: {err_line_struct = yylineno;}
 StoreLineNum: {err_line = yylineno;}
 Funcs : 
  | FuncDecl Funcs
-FuncDecl : RetType StoreLineNum ID LPAREN Formals RPAREN LBRACE FuncScope AtLeastOneOpenStatement RBRACE EndScope
-| RetType StoreLineNum ID LPAREN Formals RPAREN LBRACE FuncScope ClosedStatements RBRACE EndScope
+FuncDecl : RetType StoreLineNum SLNF ID LPAREN Formals RPAREN LBRACE FuncScope AtLeastOneOpenStatement RBRACE EndScope
+| RetType StoreLineNum SLNF ID LPAREN Formals RPAREN LBRACE FuncScope ClosedStatements RBRACE EndScope
 FuncScope:  
                 {
                     vector<attribute_t*>* formals = yyvsp[-2].attributes_list;
                     string id = *(yyvsp[-4].string_val);
                     if(id_is_defined(id))
                     {
-                        errorDef(err_line, id);
+                        errorDef(err_line_func, id);
                         exit(0);
                     }
-                    type_enum_t return_type = yyvsp[-6].type_val;
+                    type_enum_t return_type = yyvsp[-7].type_val;
                     tables[tables.size()-1].push_back(new functionAttribute(
                          id /* name */,
                          return_type,
                          *formals /* parameters */));
 
-                    tables.back().back()->line_num = err_line;
+                    tables.back().back()->line_num = err_line_func;
 
                     tables.push_back(vector<attribute_t*>(0));
 
@@ -133,20 +149,29 @@ FuncScope:
                 ;
 Structs : 
 | StructsDecl Structs
-StructsDecl : STRUCT StoreLineNum ID LBRACE StructMemList RBRACE SC AddStructSymbol
+StructsDecl : STRUCT StoreLineNum SLNFC ID LBRACE StructMemList RBRACE SC AddStructSymbol
 AddStructSymbol:
                 {
                 string id = *(yyvsp[-4].string_val);
                 if (id_is_defined(id))
                 {
-                    errorDef(err_line, id);
+                    errorDef(err_line_struct, id);
                     exit(0);
                 }
                 vector<attribute_t*> members = *(yyvsp[-2].attributes_list);
                 tables.back().push_back(new structDeclerationAttribute(id, members));
                 tables.back().back()->line_num = err_line;
                 }
-RetType : Type {$$ = $1;}
+RetType : Type 
+        {
+            if($1 == TYPE_ENUM_STRING)
+            {
+                // string is only allowed for print
+                errorMismatch(yylineno);
+                exit(0);
+            }
+            $$ = $1;
+        }
 | VOID {$$ = TYPE_ENUM_VOID;}
 Formals : {$$ = new vector<attribute_t*>(0);}
 | FormalsList {$$ = $1;}
@@ -157,7 +182,16 @@ FormalsList : FormalDecl  {$$ = new vector<attribute_t*>(1, $1);}
                 (*$$).push_back($1);
              }
              ;
-FormalDecl : Type ID {$$ = new attribute_t($1, *($2)); $$->line_num = yylineno;}
+FormalDecl : Type ID 
+            {
+                if ($1 == TYPE_ENUM_STRING)
+                {
+                     errorMismatch(yylineno);
+                     exit(0);
+                }
+                $$ = new attribute_t($1, *($2));
+                $$->line_num = yylineno;
+            }
 | StructType ID 
                 {
                     $$ = new structVariableAttribute(*($1), *($2));
@@ -185,6 +219,11 @@ StructMemList : StructMem {$$ = new vector<attribute_t*>(1, $1);}
             ;
 StructMem : Type StoreLineNum ID SC 
                     {
+                        if ($1 == TYPE_ENUM_STRING)
+                        {
+                            errorMismatch(err_line);
+                            exit(0);
+                        }
                         $$ = new attribute_t($1, *($3));
                         $$->line_num = err_line;
                     }
@@ -226,27 +265,36 @@ ClosedStatements: ClosedStatement
 // for a statement to contain an "if".
 /* Option1: the statement starts with "if" which doesn't have its matching else.
    Note that in this case the "if" block can contain any kind of statement (open or closed) */
-OpenStatement: IF LPAREN Exp RPAREN NewScope OpenStatement EndScope
-| IF LPAREN Exp RPAREN NewScope ClosedStatement EndScope
+OpenStatement: IF LPAREN Exp CheckExpBool RPAREN NewScope OpenStatement EndScope
+| IF LPAREN Exp CheckExpBool RPAREN NewScope ClosedStatement EndScope
 /* Option2: the statement starts with "if" which have its matching else.
    Note that in this case the "if" block can only contain closed statement, because otherwise, it
    would contain at least one "if" without a matching else, but according to our behaviour for
    dealing with multiple "if"s and "else"s list (see explanation above),  this "if" must be matched
    to the "ELSE" in the current rule */
-| IF LPAREN Exp RPAREN NewScope ClosedStatement EndScope ELSE NewScope OpenStatement EndScope
+| IF LPAREN Exp CheckExpBool RPAREN NewScope ClosedStatement EndScope ELSE NewScope OpenStatement EndScope
 /* Option3: the statement starts with "while".
    Note In this case, the "while" block must contain at least one "if" without its matching "else",
    which means it must contain "OpenStatement" */
-| WHILE EnterLoop LPAREN Exp RPAREN NewScope OpenStatement  EndScope ExitLoop
+| WHILE EnterLoop LPAREN Exp CheckExpBool RPAREN NewScope OpenStatement  EndScope ExitLoop
 /* Option4: the statement consist of LBRACE AtLeastOneOpenStatement RBRACE */
 | LBRACE NewScope AtLeastOneOpenStatement RBRACE EndScope
 
 // Rules for a closed statement.
 // Note that in a closed statement, every if must have its matching else.
 ClosedStatement: SimpleStatement
-| IF LPAREN Exp RPAREN NewScope ClosedStatement EndScope ELSE NewScope ClosedStatement EndScope
-| WHILE EnterLoop LPAREN Exp RPAREN NewScope ClosedStatement EndScope ExitLoop
+| IF LPAREN Exp CheckExpBool RPAREN NewScope ClosedStatement EndScope ELSE NewScope ClosedStatement EndScope
+| WHILE EnterLoop LPAREN Exp CheckExpBool RPAREN NewScope ClosedStatement EndScope ExitLoop
 | LBRACE NewScope ClosedStatements RBRACE EndScope
+
+CheckExpBool :
+    {
+        if(yyvsp[0].expression_val->type != TYPE_ENUM_BOOL)
+        {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+    }
 
 EnterLoop:{inside_loop++;}
 ExitLoop:{inside_loop--;}
@@ -306,6 +354,11 @@ SimpleStatement: Type StoreLineNum ID SC
                             errorDef(err_line, *($3));
                             exit(0);
                         }
+                        if($1 == TYPE_ENUM_STRING)
+                        {
+                            errorMismatch(err_line);
+                            exit(0);
+                        }
                         tables[tables.size()-1].push_back(new attribute_t($1, *($3)));
                         tables.back().back()->line_num = err_line;
                         offsets[offsets.size()-1]++;
@@ -328,7 +381,7 @@ SimpleStatement: Type StoreLineNum ID SC
                         offsets[offsets.size()-1] += tables.back().back()->get_size();
                     }
                     ;
-| STRUCT StoreLineNum ID LBRACE StructMemList RBRACE SC  AddStructSymbol
+| STRUCT StoreLineNum SLNFC ID LBRACE StructMemList RBRACE SC  AddStructSymbol
 | Type StoreLineNum ID ASSIGN Exp SC 
                     {
                         if(id_is_defined(*($3)))
@@ -336,9 +389,26 @@ SimpleStatement: Type StoreLineNum ID SC
                             errorDef(err_line, *($3));
                             exit(0);
                         }
+                        if($1 == TYPE_ENUM_STRING)
+                        {
+                            errorMismatch(err_line);
+                            exit(0);
+                        }
+
                         tables[tables.size()-1].push_back(new attribute_t($1, *($3)));
                         tables.back().back()->line_num = err_line;
                         offsets[offsets.size()-1]++;
+
+                        expression_t* id_exp = new expression_t(get_type_by_name(*($3)));
+                        if(id_exp->type == TYPE_ENUM_STRUCT_VAR)
+                        {
+                            id_exp->sub_type = get_struct_subtype(*($3));
+                        }
+                        if(!assign_allowed(id_exp, $5))
+                        {
+                            errorMismatch(err_line);
+                            exit(0);
+                        }
                     }
 | StructType StoreLineNum ID ASSIGN Exp SC 
                     {
@@ -352,9 +422,21 @@ SimpleStatement: Type StoreLineNum ID SC
                             errorUndefStruct(err_line, *($1));
                             exit(0);
                         }
+
                         tables.back().push_back(new structVariableAttribute(*($1), *($3)));
                         tables.back().back()->line_num = err_line;
                         offsets.back() += tables.back().back()->get_size();
+
+                        expression_t* id_exp = new expression_t(get_type_by_name(*($3)));
+                        if(id_exp->type == TYPE_ENUM_STRUCT_VAR)
+                        {
+                            id_exp->sub_type = get_struct_subtype(*($3));
+                        }
+                        if(!assign_allowed(id_exp, $5))
+                        {
+                            errorMismatch(err_line);
+                            exit(0);
+                        }
                     }
 | ID StoreLineNum ASSIGN Exp SC 
     {
@@ -365,7 +447,20 @@ SimpleStatement: Type StoreLineNum ID SC
             errorUndef(err_line, *($1));
             exit(0);
         }
+
+                         expression_t* id_exp = new expression_t(get_type_by_name(*($1)));
+                        if(id_exp->type == TYPE_ENUM_STRUCT_VAR)
+                        {
+                            id_exp->sub_type = get_struct_subtype(*($1));
+                        }
+                        if(!assign_allowed(id_exp, $4))
+                        {
+                            errorMismatch(err_line);
+                            exit(0);
+                        }
+
     }
+
 | ID StoreLineNum PERIOD ID ASSIGN Exp SC 
     {
         if(!id_is_defined(*($1)) ||
@@ -379,10 +474,38 @@ SimpleStatement: Type StoreLineNum ID SC
             errorUndefStructMember(err_line, *($1));
             exit(0);
         }
+        type_enum_t mem_type = get_struct_member_type (*($1), *($4));
+        expression_t* mem_exp = new expression_t(mem_type);
+        assert(mem_exp->type != TYPE_ENUM_STRUCT_VAR);
+        if(!assign_allowed(mem_exp, $6))
+        {
+            errorMismatch(err_line);
+            exit(0);
+        }
     }
-| Call SC 
-| RETURN SC 
-| RETURN Exp SC 
+| Call StoreLineNum SC 
+| RETURN StoreLineNum SC 
+    {
+        // Last thing we stored globally must be function
+        assert(tables[0].back()->type == TYPE_ENUM_FUNCTION);
+        functionAttribute* current_func = dynamic_cast<functionAttribute*>(tables[0].back());
+        if(current_func->return_type != TYPE_ENUM_VOID)
+        {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+    }
+| RETURN Exp StoreLineNum SC 
+    {
+        // Last thing we stored globally must be function
+        assert(tables[0].back()->type == TYPE_ENUM_FUNCTION);
+        functionAttribute* current_func = dynamic_cast<functionAttribute*>(tables[0].back());
+        if(!assign_allowed(new expression_t(current_func->return_type), $2))
+        {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+    }
 | BREAK StoreLineNum SC 
     {
         if(inside_loop == 0)
@@ -409,6 +532,18 @@ Call : ID StoreLineNum LPAREN ExpList RPAREN
                 exit(0);
             }
         $$ = get_function_ret_val_by_name(*($1));
+        if(!function_parameters_match(*($1), $4))
+        {
+            // errorPrototypeMismatch
+            vector<string> types;
+            functionAttribute* function = get_function(*($1));
+            for (int i=function->parameters.size()-1; i>=0; i--)
+            {
+                types.push_back(get_type_string(function->parameters[i]));
+            }
+            errorPrototypeMismatch(err_line, *($1), types);
+            exit(0);
+        }
     }
 | ID StoreLineNum LPAREN RPAREN
     {
@@ -418,38 +553,67 @@ Call : ID StoreLineNum LPAREN ExpList RPAREN
                 errorUndefFunc(err_line, *($1));
                 exit(0);
             }
+        $$ = get_function_ret_val_by_name(*($1));
+        vector<expression_t*>* vec = new vector<expression_t*>(0);
+        if(!function_parameters_match(*($1), vec))
+        {
+            // errorPrototypeMismatch
+            vector<string> types;
+            functionAttribute* function = get_function(*($1));
+            for (int i=function->parameters.size()-1; i>=0; i--)
+            {
+                types.push_back(get_type_string(function->parameters[i]));
+            }
+            errorPrototypeMismatch(err_line, *($1), types);
+            exit(0);
+        }
         $$ = get_function_ret_val_by_name(*($1)); 
     }
-ExpList : Exp 
+ExpList : Exp {$$ = new vector<expression_t*>(1, $1);}
 | Exp COMMA ExpList
+    {
+        $$ = $3;
+        $$->push_back($1);
+    }
 Type : INT {$$ = TYPE_ENUM_INT;}
 | BYTE {$$ = TYPE_ENUM_BYTE;}
 | BOOL {$$ = TYPE_ENUM_BOOL;}
-StructType : STRUCT StoreLineNum ID {$$ = $3;}
+StructType : STRUCT StoreLineNum SLNFC ID {$$ = $4;}
 Exp :LPAREN Exp RPAREN %prec LPAREN
     {
         $$ = $2;
+
     }
 | Exp ADD Exp %prec ADD
     {
-        if($1 == TYPE_ENUM_INT || $3 == TYPE_ENUM_INT)
+        if(!type_is_numeric($1->type) || !type_is_numeric($3->type))
         {
-            $$ = TYPE_ENUM_INT;
+            errorMismatch(yylineno);
+            exit(0);
+        }
+        if($1->type == TYPE_ENUM_INT || $3->type == TYPE_ENUM_INT)
+        {
+            $$ = new expression_t(TYPE_ENUM_INT);
         }
         else
         {
-            $$ = TYPE_ENUM_BYTE;
+            $$ = new expression_t(TYPE_ENUM_BYTE);
         }
     }
 | Exp MUL Exp %prec MUL
     {
-        if($1 == TYPE_ENUM_INT || $3 == TYPE_ENUM_INT)
+        if(!type_is_numeric($1->type) || !type_is_numeric($3->type))
         {
-            $$ = TYPE_ENUM_INT;
+            errorMismatch(yylineno);
+            exit(0);
+        }
+        if($1->type == TYPE_ENUM_INT || $3->type == TYPE_ENUM_INT)
+        {
+            $$ = new expression_t(TYPE_ENUM_INT);
         }
         else
         {
-            $$ = TYPE_ENUM_BYTE;
+            $$ = new expression_t(TYPE_ENUM_BYTE);
         }
     }
 | ID 
@@ -461,7 +625,11 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
             errorUndef(yylineno, *($1));
             exit(0);
         }
-        $$ = get_type_by_name(*($1));
+        $$ = new expression_t(get_type_by_name(*($1)));
+        if ($$->type == TYPE_ENUM_STRUCT_VAR)
+        {
+            $$->sub_type = get_struct_subtype(*($1));
+        }
     }
 | ID PERIOD ID 
     {
@@ -476,12 +644,20 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
             errorUndefStructMember(yylineno, *($1));
             exit(0);
         }
-        $$ = get_struct_member_type(*($1), *($3));
+        $$ = new expression_t(get_struct_member_type(*($1), *($3)));
     }
-| Call {$$ = $1;}
+| Call {$$ = new expression_t($1);}
 | NUM 
     {
-        $$ = TYPE_ENUM_INT;
+        $$ = new expression_t(TYPE_ENUM_INT);
+						
+        /* hw5 */
+		string allocated_reg = regsPool->allocate_reg();
+        // <Ramy>: after I changed the struct to union I had to change "$$.belongs_reg" to "$$->belongs_reg".
+        // Note that "$$" now is of type "expression_t".
+		$$->belongs_reg = allocated_reg;
+		CodeBuffer::instance().emit("li $" + allocated_reg + ", " + *($1));
+		
     }
 | NUM StoreLineNum B 
     {
@@ -492,46 +668,194 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
             errorByteTooLarge(err_line, *($1));
             exit(0);
         }
-        $$ = TYPE_ENUM_BYTE;
+        $$ = new expression_t(TYPE_ENUM_BYTE);
+		
+        /* hw5 */
+		string allocated_reg = regsPool->allocate_reg();
+        // <Ramy>: after I changed the struct to union I had to change "$$.belongs_reg" to "$$->belongs_reg".
+        // Note that "$$" now is of type "expression_t".
+		$$->belongs_reg = allocated_reg;
+		CodeBuffer::instance().emit("li $" + allocated_reg + ", " + *($1));
     }
 | STRING 
     {
-        $$ = TYPE_ENUM_STRING;
+        $$ = new expression_t(TYPE_ENUM_STRING);
+		
+        /* hw5 */
+		string allocated_reg = regsPool->allocate_reg();
+		$$->belongs_reg = allocated_reg;
+        // <Ramy>: I changed this from $1.string_val to *($1) because it didn't compile after I
+        // changed the struct to union
+		CodeBuffer::instance().emit("la $" + allocated_reg + ", " + "var" + *($1));
+		
     }
 | TRUE 
     {
-        $$ = TYPE_ENUM_BOOL;
+        $$ = new expression_t(TYPE_ENUM_BOOL);
+
+        /* hw5 */
+        // Set a jump destination to be backpatched for the current epxression.
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "B -> true".
+        int emitted_offset = CodeBuffer::instance().emit("j ");
+        $$->true_list = CodeBuffer::instance().makelist(emitted_offset);
     }
 | FALSE 
     {
-        $$ = TYPE_ENUM_BOOL;
+        $$ = new expression_t(TYPE_ENUM_BOOL);
+
+        /* hw5 */
+        // Set a jump destination to be backpatched for the current epxression.
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "B -> false".
+        int emitted_offset = CodeBuffer::instance().emit("j ");
+        $$->false_list = CodeBuffer::instance().makelist(emitted_offset);
     }
 | NOT Exp %prec NOT
     {
-        $$ = TYPE_ENUM_BOOL;
+        if($2->type != TYPE_ENUM_BOOL)
+        {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+        $$ = new expression_t(TYPE_ENUM_BOOL);
+
+        /* hw5 */
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "B -> not B1"
+        $$->true_list = $2->false_list;
+        $$->false_list = $$->true_list;
     }
-| Exp AND Exp %prec AND
+| Exp AND GENERATE_AND_EMIT_LABEL Exp %prec AND
     {
-        $$ = TYPE_ENUM_BOOL;
+        //hw5: I added a marker "GENERATE_AND_EMIT_LABEL", therefore I changed "$3->type" to "$4->type"
+        if($1->type != TYPE_ENUM_BOOL || $4->type != TYPE_ENUM_BOOL)
+        {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+        $$ = new expression_t(TYPE_ENUM_BOOL);
+
+        /* hw5 */
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "B -> B1 and B2"
+
+        // set "last_generated_label" as the jump destination of all branches in the true list
+        // of the first expression.
+        // Note that "last_generated_label" is a label that was generated and emitted by
+        // "GENERATE_AND_EMIT_LABEL" marker.
+        CodeBuffer::instance().bpatch($1->true_list, last_generated_label);
+
+        // Set the true list of the result expression to be the true list of the second expression
+        $$->true_list = $4->true_list;
+
+        // Set the false list of the result expression to contain all of the offsets in the false
+        // list of the first expression and the false list of the second expression
+        $$->false_list = CodeBuffer::instance().merge($1->false_list, $4->false_list);
     }
-| Exp OR Exp %prec OR
+| Exp OR GENERATE_AND_EMIT_LABEL Exp %prec OR
     {
-        $$ = TYPE_ENUM_BOOL;
+        //hw5: I added a marker "GENERATE_AND_EMIT_LABEL", therefore I changed "$3->type" to "$4->type"
+        if($1->type != TYPE_ENUM_BOOL || $4->type != TYPE_ENUM_BOOL)
+        {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+        $$ = new expression_t(TYPE_ENUM_BOOL);
+
+        /* hw5 */
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "B -> B1 or B2"
+
+        // set "last_generated_label" as the jump destination of all branches in the false list
+        // of the first expression.
+        // Note that "last_generated_label" is a label that was generated and emitted by
+        // "GENERATE_AND_EMIT_LABEL" marker.
+        CodeBuffer::instance().bpatch($1->false_list, last_generated_label);
+
+        // Set the false list of the result expression to be the false list of the second expression
+        $$->false_list = $4->false_list;
+
+        // Set the true list of the result expression to contain all of the offsets in the true
+        // list of the first expression and the true list of the second expression
+        $$->true_list = CodeBuffer::instance().merge($1->true_list, $4->true_list);
     }
 | Exp RELATIONAL Exp %prec RELATIONAL
     {
-        $$ = TYPE_ENUM_BOOL;
+        if(!type_is_numeric($1->type) || !type_is_numeric($3->type))
+        {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+        $$ = new expression_t(TYPE_ENUM_BOOL);
+
+        /* hw5 */
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "B -> id1 relop id2"
+
+        // Emit conditional branch instruction corresponding to the received RELATIONAL, and store
+        // the emitted offset into "emitted_offset_for_true_list"
+        // "emit(‘if’ id1.var relop id2.var ‘goto _’);"
+        int emitted_offset_for_true_list = emit_conditional_branch_for_relational_operation(
+            *($1) /* left_expression */,
+            *($2) /* relational_operation */,
+            *($3) /* right_expression */);
+
+        // "emit(‘goto _’);"
+        int emitted_offset_for_false_list = CodeBuffer::instance().emit("j ");
+        
+        // "B.trueList = [nextInstr];
+        // B.falseList = [nextInstr+1];"
+        $$->true_list = CodeBuffer::instance().makelist(emitted_offset_for_true_list);
+        $$->false_list = CodeBuffer::instance().makelist(emitted_offset_for_false_list);
     }
 | Exp EQ Exp %prec EQ
     {
-        $$ = TYPE_ENUM_BOOL;
+        if(!type_is_numeric($1->type) || !type_is_numeric($3->type))
+        {
+            errorMismatch(yylineno);
+            exit(0);
+        }
+        $$ = new expression_t(TYPE_ENUM_BOOL);
+
+        /* hw5 */
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "B -> id1 relop id2"
+
+        // Emit conditional branch instruction corresponding to the received RELATIONAL, and store
+        // the emitted offset into "emitted_offset_for_true_list"
+        // "emit(‘if’ id1.var relop id2.var ‘goto _’);"
+        int emitted_offset_for_true_list = emit_conditional_branch_for_relational_operation(
+            *($1) /* left_expression */,
+            *($2) /* relational_operation */,
+            *($3) /* right_expression */);
+
+        // "emit(‘goto _’);"
+        int emitted_offset_for_false_list = CodeBuffer::instance().emit("j ");
+        
+        // "B.trueList = [nextInstr];
+        // B.falseList = [nextInstr+1];"
+        $$->true_list = CodeBuffer::instance().makelist(emitted_offset_for_true_list);
+        $$->false_list = CodeBuffer::instance().makelist(emitted_offset_for_false_list);
+
+    }
+
+GENERATE_AND_EMIT_LABEL : 
+    {
+        /* hw5 */
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "M -> epsilon"
+
+        // Generate and emit a label and store it into "last_generated_label" global variable.
+        // This label will be later sent to CodeBuffer:bpatch() to be used as a jump destination.
+        last_generated_label = CodeBuffer::instance().genLabel();
     }
 
 %%
 
 int main()
 {
-    yydebug = 1;
+    yydebug = 0;
 	tables = vector<vector<attribute_t*> >(0);
     offsets = vector<int>(0);
     yyparse();
