@@ -22,8 +22,21 @@
 	#include "regs_pool.h"
 	/*std::list<function> functionsList;*/
 	regs_pool* regsPool= new regs_pool ;
-    std::string last_generated_label;
-	
+
+    // This label is used when backpatching jump instructions when there is a need for single backpatch,
+    // and it is used for the first backpatch when there is a need for a two backpatches.
+    // See GENERATE_AND_EMIT_LABEL marker.
+    std::string label_to_jump;
+
+    // When there is a need for performng two backpatches, this label is used for the second backpatch.
+    // See GENERATE_AND_EMIT_LABEL2 marker.
+    std::string label_to_second_jump;
+
+    // This offset corresponds to the offset in CodeBuffer of the last "j " instruction which was
+    // emitted before encountering an "else" statement (see "EMIT_JUMP_BEFORE_ELSE" marker).
+    // This offset will be pushed to the next list of the entire "if ... else ..." statement, so
+    // the instruction will be eventually backpatched.
+    int jump_offset_before_else;
 %}
 
 %token VOID
@@ -73,6 +86,11 @@
 %type<expression_val> Exp;
 %type<expressions_list> ExpList;
 %type<type_val> Call;
+%type<statement_val> OpenStatement;
+%type<statement_val> AtLeastOneOpenStatement;
+%type<statement_val> ClosedStatement;
+%type<statement_val> ClosedStatements;
+%type<statement_val> SimpleStatement;
 %%
 
 Program : GlobalScope Structs Funcs EndScope
@@ -245,18 +263,89 @@ StructMem : Type StoreLineNum ID SC
 // but one of these statements have to be open statement
 /* Option 1: this list contains mere one open statement */
 AtLeastOneOpenStatement: OpenStatement
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "L -> S"
+    $$ = $1;
+}
 /* Option2: this list ends with an open statement, and the rest of the list can contain any
    kind of statements */
-| AtLeastOneOpenStatement OpenStatement
-| ClosedStatements OpenStatement
+| AtLeastOneOpenStatement GENERATE_AND_EMIT_LABEL OpenStatement
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "L -> L1 M S"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the next list
+    // of "OpenStatement".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($1->next_list, label_to_jump);
+
+    $$->next_list = $3->next_list;
+}
+| ClosedStatements GENERATE_AND_EMIT_LABEL OpenStatement
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "L -> L1 M S"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the next list
+    // of "OpenStatement".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($1->next_list, label_to_jump);
+
+    $$->next_list = $3->next_list;
+}
 /* Option3: this list can ends with a closed statement, and the rest of the list must contain at
    least one open statement, which means the rest of the list is of the kind "AtLeastOneOpenStatement" */ 
-| AtLeastOneOpenStatement ClosedStatement
+| AtLeastOneOpenStatement GENERATE_AND_EMIT_LABEL ClosedStatement
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "L -> L1 M S"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the next list
+    // of "ClosedStatement".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($1->next_list, label_to_jump);
+
+    $$->next_list = $3->next_list;
+}
 
 // We define "ClosedStatements" to be a list of closed statements
 ClosedStatements: ClosedStatement
-| ClosedStatements ClosedStatement
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "L -> S"
+    $$ = $1;
+}
+| ClosedStatements GENERATE_AND_EMIT_LABEL ClosedStatement
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "L -> L1 M S"
 
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the next list
+    // of "ClosedStatement".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($1->next_list, label_to_jump);
+
+    $$->next_list = $3->next_list;
+}
 // Rules for an open statement.
 // Note that a statement is only considered open if it contains at least one "if" which doesn't
 // have a matching "else".
@@ -265,27 +354,187 @@ ClosedStatements: ClosedStatement
 // for a statement to contain an "if".
 /* Option1: the statement starts with "if" which doesn't have its matching else.
    Note that in this case the "if" block can contain any kind of statement (open or closed) */
-OpenStatement: IF LPAREN Exp CheckExpBool RPAREN NewScope OpenStatement EndScope
-| IF LPAREN Exp CheckExpBool RPAREN NewScope ClosedStatement EndScope
+OpenStatement: IF LPAREN Exp CheckExpBool RPAREN NewScope GENERATE_AND_EMIT_LABEL OpenStatement EndScope
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "S -> if (B) M S1"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the true list
+    // of "Exp".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($3->true_list, label_to_jump);
+
+    // Set the next list of the result "OpenStatement" to contain all of the offsets in the false
+    // list of "Exp" and the next list of the inner "OpenStatement""
+    $$->next_list = CodeBuffer::instance().merge($3->false_list, $8->next_list);
+}
+| IF LPAREN Exp CheckExpBool RPAREN NewScope GENERATE_AND_EMIT_LABEL ClosedStatement EndScope
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "S -> if (B) M S1"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the true list
+    // of "Exp".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($3->true_list, label_to_jump);
+
+    // Set the next list of the result "OpenStatement" to contain all of the offsets in the false
+    // list of "Exp" and the next list of the inner "OpenStatement""
+    $$->next_list = CodeBuffer::instance().merge($3->false_list, $8->next_list);
+}
 /* Option2: the statement starts with "if" which have its matching else.
    Note that in this case the "if" block can only contain closed statement, because otherwise, it
    would contain at least one "if" without a matching else, but according to our behaviour for
    dealing with multiple "if"s and "else"s list (see explanation above),  this "if" must be matched
    to the "ELSE" in the current rule */
-| IF LPAREN Exp CheckExpBool RPAREN NewScope ClosedStatement EndScope ELSE NewScope OpenStatement EndScope
+| IF LPAREN Exp CheckExpBool RPAREN NewScope GENERATE_AND_EMIT_LABEL ClosedStatement EndScope EMIT_JUMP_BEFORE_ELSE ELSE NewScope GENERATE_AND_EMIT_LABEL2 OpenStatement EndScope
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "S â†’ if (B) M1 S1 N
+    // else M2 S2"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the true list of "Exp".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($3->true_list, label_to_jump);
+
+    // set "label_to_second_jump" as the jump destination of all branches in the false list of "Exp".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL2" marker.
+    CodeBuffer::instance().bpatch($3->false_list, label_to_second_jump);
+
+    // Set the next list of the result "OpenStatement" to contain "jump_offset_for_else", all of
+    // the offsets in the "ClosedStatement" which is inside the "if" block and all of the offsets
+    // in the next list of the "OpenStatement" which is inside the "else" block
+    $$->next_list = CodeBuffer::instance().merge($8->next_list, vector<int>(1, jump_offset_before_else));
+    $$->next_list = CodeBuffer::instance().merge($$->next_list, $14->next_list);
+}
 /* Option3: the statement starts with "while".
    Note In this case, the "while" block must contain at least one "if" without its matching "else",
    which means it must contain "OpenStatement" */
-| WHILE EnterLoop LPAREN Exp CheckExpBool RPAREN NewScope OpenStatement  EndScope ExitLoop
+| WHILE EnterLoop  GENERATE_AND_EMIT_LABEL LPAREN Exp CheckExpBool RPAREN NewScope GENERATE_AND_EMIT_LABEL2 OpenStatement EndScope ExitLoop
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "S -> while M1 (B)
+    // M2 S1"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the next list
+    // of the inner "OpenStatement".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($10->next_list, label_to_jump);
+
+    // set "label_to_jump" as the jump destination of all branches in the "continue_list"
+    // of the inner "OpenStatement".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($10->continue_list, label_to_jump);
+
+    // set "label_to_second_jump" as the jump destination of all branches in the true list
+    // of "Exp".
+    // Note that "label_to_second_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL2" marker.
+    CodeBuffer::instance().bpatch($5->true_list, label_to_second_jump);
+
+    // Set the next list of the result "OpenStatement" to contain all the offsets in the false list
+    // of "Exp" and "break_list" of the "OpenStatement" which is inside the while block
+    $$->next_list = CodeBuffer::instance().merge($5->false_list, $10->break_list);
+
+    CodeBuffer::instance().emit("goto " + label_to_jump);
+}
 /* Option4: the statement consist of LBRACE AtLeastOneOpenStatement RBRACE */
 | LBRACE NewScope AtLeastOneOpenStatement RBRACE EndScope
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "S -> { L }"
+    $$ = $3;
+}
 
 // Rules for a closed statement.
 // Note that in a closed statement, every if must have its matching else.
 ClosedStatement: SimpleStatement
-| IF LPAREN Exp CheckExpBool RPAREN NewScope ClosedStatement EndScope ELSE NewScope ClosedStatement EndScope
-| WHILE EnterLoop LPAREN Exp CheckExpBool RPAREN NewScope ClosedStatement EndScope ExitLoop
+{
+    /* hw5 */
+    $$ = $1;
+}
+| IF LPAREN Exp CheckExpBool RPAREN NewScope GENERATE_AND_EMIT_LABEL ClosedStatement EndScope EMIT_JUMP_BEFORE_ELSE ELSE NewScope GENERATE_AND_EMIT_LABEL2 ClosedStatement EndScope
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "S â†’ if (B) M1 S1 N
+    // else M2 S2"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the true list of "Exp".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($3->true_list, label_to_jump);
+
+    // set "label_to_second_jump" as the jump destination of all branches in the false list of "Exp".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL2" marker.
+    CodeBuffer::instance().bpatch($3->false_list, label_to_second_jump);
+
+    // Set the next list of the result "ClosedStatement" to contain "jump_offset_for_else", all of
+    // the offsets in the "ClosedStatement" which is inside the "if" block and all of the offsets
+    // in the next list of the "ClosedStatement" which is inside the "else" block
+    $$->next_list = CodeBuffer::instance().merge($8->next_list, vector<int>(1, jump_offset_before_else));
+    $$->next_list = CodeBuffer::instance().merge($$->next_list, $14->next_list);
+}
+| WHILE EnterLoop GENERATE_AND_EMIT_LABEL LPAREN Exp CheckExpBool RPAREN NewScope GENERATE_AND_EMIT_LABEL2 ClosedStatement EndScope ExitLoop
+{
+    /* hw5 */
+    // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+    // "S -> while M1 (B)
+    // M2 S1"
+
+    $$ = new statement_t();
+
+    // set "label_to_jump" as the jump destination of all branches in the next list
+    // of the inner "ClosedStatement".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($10->next_list, label_to_jump);
+
+    // set "label_to_jump" as the jump destination of all branches in the "continue_list"
+    // of the inner "ClosedStatement".
+    // Note that "label_to_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL" marker.
+    CodeBuffer::instance().bpatch($10->continue_list, label_to_jump);
+
+    // set "label_to_second_jump" as the jump destination of all branches in the true list
+    // of "Exp".
+    // Note that "label_to_second_jump" is a label that was generated and emitted by
+    // "GENERATE_AND_EMIT_LABEL2" marker.
+    CodeBuffer::instance().bpatch($5->true_list, label_to_second_jump);
+
+    // Set the next list of the result "OpenStatement" to contain all the offsets in the false list
+    // of "Exp" and "break_list" of the "ClosedStatement" which is inside the while block
+    $$->next_list = CodeBuffer::instance().merge($5->false_list, $10->break_list);
+
+    CodeBuffer::instance().emit("goto " + label_to_jump);
+}
 | LBRACE NewScope ClosedStatements RBRACE EndScope
+{
+    /* hw5 */
+    $$ = $3;
+}
 
 CheckExpBool :
     {
@@ -362,6 +611,9 @@ SimpleStatement: Type StoreLineNum ID SC
                         tables[tables.size()-1].push_back(new attribute_t($1, *($3)));
                         tables.back().back()->line_num = err_line;
                         offsets[offsets.size()-1]++;
+
+                        /* hw5 */
+                        $$ = new statement_t();
                     }
                     ;
 | StructType StoreLineNum ID SC 
@@ -379,9 +631,16 @@ SimpleStatement: Type StoreLineNum ID SC
                         tables[tables.size()-1].push_back(new structVariableAttribute(*($1), *($3)));
                         tables.back().back()->line_num = err_line;
                         offsets[offsets.size()-1] += tables.back().back()->get_size();
+
+                        /* hw5 */
+                        $$ = new statement_t();
                     }
                     ;
 | STRUCT StoreLineNum SLNFC ID LBRACE StructMemList RBRACE SC  AddStructSymbol
+{
+                        /* hw5 */
+                        $$ = new statement_t();
+}
 | Type StoreLineNum ID ASSIGN Exp SC 
                     {
                         if(id_is_defined(*($3)))
@@ -409,6 +668,8 @@ SimpleStatement: Type StoreLineNum ID SC
                             errorMismatch(err_line);
                             exit(0);
                         }
+                        /* hw5 */
+                        $$ = new statement_t();
                     }
 | StructType StoreLineNum ID ASSIGN Exp SC 
                     {
@@ -437,6 +698,8 @@ SimpleStatement: Type StoreLineNum ID SC
                             errorMismatch(err_line);
                             exit(0);
                         }
+                        /* hw5 */
+                        $$ = new statement_t();
                     }
 | ID StoreLineNum ASSIGN Exp SC 
     {
@@ -458,7 +721,8 @@ SimpleStatement: Type StoreLineNum ID SC
                             errorMismatch(err_line);
                             exit(0);
                         }
-
+                        /* hw5 */
+                        $$ = new statement_t();
     }
 
 | ID StoreLineNum PERIOD ID ASSIGN Exp SC 
@@ -482,8 +746,14 @@ SimpleStatement: Type StoreLineNum ID SC
             errorMismatch(err_line);
             exit(0);
         }
+        /* hw5 */
+        $$ = new statement_t();
     }
-| Call StoreLineNum SC 
+| Call StoreLineNum SC
+{
+                        /* hw5 */
+                        $$ = new statement_t();
+}
 | RETURN StoreLineNum SC 
     {
         // Last thing we stored globally must be function
@@ -494,6 +764,8 @@ SimpleStatement: Type StoreLineNum ID SC
             errorMismatch(yylineno);
             exit(0);
         }
+        /* hw5 */
+        $$ = new statement_t();
     }
 | RETURN Exp StoreLineNum SC 
     {
@@ -505,6 +777,8 @@ SimpleStatement: Type StoreLineNum ID SC
             errorMismatch(yylineno);
             exit(0);
         }
+        /* hw5 */
+        $$ = new statement_t();
     }
 | BREAK StoreLineNum SC 
     {
@@ -513,6 +787,11 @@ SimpleStatement: Type StoreLineNum ID SC
             errorUnexpectedBreak(err_line);
             exit(0);
         }
+
+        /* hw5 */
+        $$ = new statement_t();
+        int offset = CodeBuffer::instance().emit("j ");
+        $$->break_list = CodeBuffer::instance().makelist(offset);
     }
 | CONTINUE StoreLineNum SC
     {
@@ -521,6 +800,11 @@ SimpleStatement: Type StoreLineNum ID SC
             errorUnexpectedContinue(err_line);
             exit(0);
         }
+
+        /* hw5 */
+        $$ = new statement_t();
+        int offset = CodeBuffer::instance().emit("j ");
+        $$->continue_list = CodeBuffer::instance().makelist(offset);
     }
     ;
 Call : ID StoreLineNum LPAREN ExpList RPAREN 
@@ -740,11 +1024,11 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
         // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
         // "B -> B1 and B2"
 
-        // set "last_generated_label" as the jump destination of all branches in the true list
+        // set "label_to_jump" as the jump destination of all branches in the true list
         // of the first expression.
-        // Note that "last_generated_label" is a label that was generated and emitted by
+        // Note that "label_to_jump" is a label that was generated and emitted by
         // "GENERATE_AND_EMIT_LABEL" marker.
-        CodeBuffer::instance().bpatch($1->true_list, last_generated_label);
+        CodeBuffer::instance().bpatch($1->true_list, label_to_jump);
 
         // Set the true list of the result expression to be the true list of the second expression
         $$->true_list = $4->true_list;
@@ -767,11 +1051,11 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
         // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
         // "B -> B1 or B2"
 
-        // set "last_generated_label" as the jump destination of all branches in the false list
+        // set "label_to_jump" as the jump destination of all branches in the false list
         // of the first expression.
-        // Note that "last_generated_label" is a label that was generated and emitted by
+        // Note that "label_to_jump" is a label that was generated and emitted by
         // "GENERATE_AND_EMIT_LABEL" marker.
-        CodeBuffer::instance().bpatch($1->false_list, last_generated_label);
+        CodeBuffer::instance().bpatch($1->false_list, label_to_jump);
 
         // Set the false list of the result expression to be the false list of the second expression
         $$->false_list = $4->false_list;
@@ -795,13 +1079,13 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
 
         // Emit conditional branch instruction corresponding to the received RELATIONAL, and store
         // the emitted offset into "emitted_offset_for_true_list"
-        // "emit(‘if’ id1.var relop id2.var ‘goto _’);"
+        // "emit(â€˜ifâ€™ id1.var relop id2.var â€˜goto _â€™);"
         int emitted_offset_for_true_list = emit_conditional_branch_for_relational_operation(
             *($1) /* left_expression */,
             *($2) /* relational_operation */,
             *($3) /* right_expression */);
 
-        // "emit(‘goto _’);"
+        // "emit(â€˜goto _â€™);"
         int emitted_offset_for_false_list = CodeBuffer::instance().emit("j ");
         
         // "B.trueList = [nextInstr];
@@ -824,13 +1108,13 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
 
         // Emit conditional branch instruction corresponding to the received RELATIONAL, and store
         // the emitted offset into "emitted_offset_for_true_list"
-        // "emit(‘if’ id1.var relop id2.var ‘goto _’);"
+        // "emit(â€˜ifâ€™ id1.var relop id2.var â€˜goto _â€™);"
         int emitted_offset_for_true_list = emit_conditional_branch_for_relational_operation(
             *($1) /* left_expression */,
             *($2) /* relational_operation */,
             *($3) /* right_expression */);
 
-        // "emit(‘goto _’);"
+        // "emit(â€˜goto _â€™);"
         int emitted_offset_for_false_list = CodeBuffer::instance().emit("j ");
         
         // "B.trueList = [nextInstr];
@@ -846,9 +1130,28 @@ GENERATE_AND_EMIT_LABEL :
         // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
         // "M -> epsilon"
 
-        // Generate and emit a label and store it into "last_generated_label" global variable.
+        // Generate and emit a label and store it into "label_to_jump" global variable.
         // This label will be later sent to CodeBuffer:bpatch() to be used as a jump destination.
-        last_generated_label = CodeBuffer::instance().genLabel();
+        label_to_jump = CodeBuffer::instance().genLabel();
+    }
+GENERATE_AND_EMIT_LABEL2 :
+    {
+        /* hw5 */
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching Boolean expressions",
+        // "M -> epsilon"
+
+        // Generate and emit a label and store it into "label_to_jump" global variable.
+        // This label will be later sent to CodeBuffer:bpatch() to be used as a jump destination.
+        label_to_second_jump = CodeBuffer::instance().genLabel();
+    }
+
+EMIT_JUMP_BEFORE_ELSE :
+    {
+        /* hw5 */
+        // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
+        // "N -> epsilon"
+
+        CodeBuffer::instance().emit("j ");
     }
 
 %%

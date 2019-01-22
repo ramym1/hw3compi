@@ -98,6 +98,17 @@ struct expression_t
     {}
 };
 
+struct statement_t {
+    vector<int> next_list;
+
+    // List of offsets of jump instruction that were emitted upon encountering "continue;"
+    vector<int> continue_list;
+
+    // List of offsets of jump instruction that were emitted upon encountering "break;"
+    vector<int> break_list;
+    statement_t() :next_list(vector<int>(0)) {}
+};
+
 typedef struct
 {
     attribute_t* attribute_val;
@@ -106,6 +117,7 @@ typedef struct
     type_enum_t type_val;
     expression_t* expression_val;
     vector<expression_t*>* expressions_list;
+    statement_t* statement_val;
 } STYPE;
 
 #define YYSTYPE STYPE	 // Tell Bison to use STYPE as the stack type
