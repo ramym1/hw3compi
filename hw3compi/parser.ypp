@@ -399,7 +399,7 @@ OpenStatement: IF LPAREN Exp CheckExpBool RPAREN NewScope GENERATE_AND_EMIT_LABE
 {
     /* hw5 */
     // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
-    // "S → if (B) M1 S1 N
+    // "S -> if (B) M1 S1 N
     // else M2 S2"
 
     $$ = new statement_t();
@@ -476,7 +476,7 @@ ClosedStatement: SimpleStatement
 {
     /* hw5 */
     // Lectures slides, lecture 6 "Intermediate Representation", "Backpatching for Statements",
-    // "S → if (B) M1 S1 N
+    // "S -> if (B) M1 S1 N
     // else M2 S2"
 
     $$ = new statement_t();
@@ -565,13 +565,15 @@ EndScope :
                          exit(0);
                     }
               }
-              endScope();
+              // hw5: Removed output
+              //endScope();
               for(int i=0; i<tables.back().size(); i++)
               {
                     if(tables.back()[i]->type != TYPE_ENUM_STRUCT_DECLERATION )
                        {
                             string symbol_type = get_type_string(tables.back()[i]);
-                            printID(tables.back()[i]->name,tables.back()[i]->offset, symbol_type);
+                            // hw5: removed output
+                            // printID(tables.back()[i]->name,tables.back()[i]->offset, symbol_type);
                        }
               }
               for(int i=0; i<tables.back().size(); i++)
@@ -589,7 +591,9 @@ EndScope :
                                 memTypes.push_back(get_type_string(struct_dec->members[j]));
                                 memNames.push_back(struct_dec->members[j]->name);
                             }
-                            printStructType(struct_dec->name, memTypes, memNames);
+
+                            // hw5: removed output
+                            // printStructType(struct_dec->name, memTypes, memNames);
                        }
               }
               tables.pop_back();
@@ -1079,13 +1083,13 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
 
         // Emit conditional branch instruction corresponding to the received RELATIONAL, and store
         // the emitted offset into "emitted_offset_for_true_list"
-        // "emit(‘if’ id1.var relop id2.var ‘goto _’);"
+        // "emit('if' id1.var relop id2.var 'goto _');"
         int emitted_offset_for_true_list = emit_conditional_branch_for_relational_operation(
             *($1) /* left_expression */,
             *($2) /* relational_operation */,
             *($3) /* right_expression */);
 
-        // "emit(‘goto _’);"
+        // "emit('goto _');"
         int emitted_offset_for_false_list = CodeBuffer::instance().emit("j ");
         
         // "B.trueList = [nextInstr];
@@ -1108,13 +1112,13 @@ Exp :LPAREN Exp RPAREN %prec LPAREN
 
         // Emit conditional branch instruction corresponding to the received RELATIONAL, and store
         // the emitted offset into "emitted_offset_for_true_list"
-        // "emit(‘if’ id1.var relop id2.var ‘goto _’);"
+        // "emit('if' id1.var relop id2.var 'goto _');"
         int emitted_offset_for_true_list = emit_conditional_branch_for_relational_operation(
             *($1) /* left_expression */,
             *($2) /* relational_operation */,
             *($3) /* right_expression */);
 
-        // "emit(‘goto _’);"
+        // "emit('goto _');"
         int emitted_offset_for_false_list = CodeBuffer::instance().emit("j ");
         
         // "B.trueList = [nextInstr];
